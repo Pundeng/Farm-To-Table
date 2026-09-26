@@ -25,8 +25,14 @@ namespace FantasyShapez.Buildings
                 return;
             Vector2 pointer = UnityEngine.InputSystem.Mouse.current?.position.ReadValue() ??
                 Vector2.zero;
-            GUI.Label(new Rect(pointer.x + 16f, Screen.height - pointer.y + 16f,
-                180f, 28f), reason);
+            const float width = 260f;
+            GUIStyle style = new(GUI.skin.box) { wordWrap = true };
+            float height = Mathf.Max(30f, style.CalcHeight(new GUIContent(reason), width));
+            float x = Mathf.Clamp(pointer.x + 16f, 8f,
+                Mathf.Max(8f, Screen.width - width - 8f));
+            float y = Mathf.Clamp(Screen.height - pointer.y + 16f, 8f,
+                Mathf.Max(8f, Screen.height - height - 8f));
+            GUI.Box(new Rect(x, y, width, height), reason, style);
         }
 
         public void Show(
@@ -60,6 +66,37 @@ namespace FantasyShapez.Buildings
         {
             reason = null;
             gameObject.SetActive(false);
+        }
+
+        public void SetPortConnectionFeedback(IReadOnlyList<bool?> connections)
+        {
+            if (portIndicatorsRoot == null) return;
+            for (int index = 0; index < portIndicatorsRoot.transform.childCount; index++)
+            {
+                bool? connected = index < connections.Count ? connections[index] : null;
+                Color color = connected == true
+                    ? new Color(0.25f, 1f, 0.4f)
+                    : new Color(1f, 0.25f, 0.2f);
+                Transform indicator = portIndicatorsRoot.transform.GetChild(index);
+                foreach (SpriteRenderer renderer in indicator.GetComponentsInChildren<SpriteRenderer>())
+                    renderer.color = connected.HasValue ? color :
+                        currentPortPreviews[index].Kind switch
+                        {
+                            BuildingPortKind.Input => BuildingPortPreviewLayouts.InputColor,
+                            BuildingPortKind.PropertyInput => BuildingPortPreviewLayouts.PropertyInputColor,
+                            _ => BuildingPortPreviewLayouts.OutputColor
+                        };
+            }
+        }
+
+        public void SetDirectionConnectionFeedback(bool? connected)
+        {
+            if (directionIndicator == null) return;
+            Color color = connected == true ? new Color(0.25f, 1f, 0.4f) :
+                connected == false ? new Color(1f, 0.25f, 0.2f) : Color.white;
+            foreach (SpriteRenderer renderer in
+                     directionIndicator.GetComponentsInChildren<SpriteRenderer>())
+                renderer.color = color;
         }
 
         private void EnsureVisual(BuildingDefinition definition, float cellSize)

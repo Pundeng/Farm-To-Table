@@ -73,6 +73,16 @@ namespace FantasyShapez.Food
 
         public IEnumerable<PropertyConnection> Connections => connections.Values;
 
+        internal CookingPropertyNetwork CopyForPreview()
+        {
+            var copy = new CookingPropertyNetwork();
+            foreach (KeyValuePair<Vector2Int, PropertyConnection> entry in connections)
+                copy.connections.Add(entry.Key, entry.Value);
+            foreach (KeyValuePair<Vector2Int, int> entry in capacities)
+                copy.capacities.Add(entry.Key, entry.Value);
+            return copy;
+        }
+
         public bool TryGetConnection(Vector2Int cell, out PropertyConnection connection) =>
             connections.TryGetValue(cell, out connection);
 

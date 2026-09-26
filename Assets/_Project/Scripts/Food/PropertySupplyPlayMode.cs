@@ -31,6 +31,10 @@ namespace FantasyShapez.Food
         private readonly Dictionary<Vector2Int, GameObject> processorPortVisuals = new();
         private readonly List<Vector2Int> sources = new();
         private readonly Dictionary<Vector2Int, Vector2Int> processorPorts = new();
+        private readonly GridDragTracker pipeDrag = new();
+        private readonly List<Vector2Int> pipePath = new();
+        private GameObject pipePreview;
+        private string pipePreviewReason;
         private readonly bool debugTools;
         private Tool tool;
         private bool isVisible;
@@ -74,6 +78,7 @@ namespace FantasyShapez.Food
         }
 
         public bool IsActive => tool != Tool.None;
+        public bool IsPipeDragging => tool == Tool.Pipe && pipeDrag.IsActive;
 
         public bool IsVisible => isVisible;
 
@@ -128,10 +133,144 @@ namespace FantasyShapez.Food
             if (!isVisible)
             {
                 tool = Tool.None;
+                CancelPipeDrag();
             }
         }
 
-        public void ExitTool() => tool = Tool.None;
+        public void ExitTool()
+        {
+            tool = Tool.None;
+            CancelPipeDrag();
+        }
+
+        public void CancelPipeDrag()
+        {
+            pipeDrag.Reset();
+            pipePath.Clear();
+            pipePreviewReason = null;
+            if (pipePreview != null)
+            {
+                DestroyVisual(pipePreview);
+                pipePreview = null;
+            }
+        }
+
+        public IReadOnlyList<bool> PreviewPipePath(IReadOnlyList<Vector2Int> cells)
+        {
+            var valid = new bool[cells.Count];
+            CookingPropertyNetwork preview = network.CopyForPreview();
+            for (int index = 0; index < cells.Count; index++)
+                valid[index] = occupancy.CanPlace(cells[index], Vector2Int.one,
+                        BuildingRotation.Degrees0) &&
+                    preview.TryAddPipe(cells[index]);
+            return valid;
+        }
+
+        public bool HasPipeAt(Vector2Int cell) =>
+            network.TryGetConnection(cell, out PropertyConnection connection) &&
+            connection.Kind is PropertyConnectionKind.Pipe or PropertyConnectionKind.Collector;
+
+        public bool ContainsPlacement(BuildingPlacement placement) =>
+            placement != null &&
+            reservations.TryGetValue(placement.AnchorCell, out BuildingPlacement stored) &&
+            ReferenceEquals(stored, placement);
+
+        public bool TryGetClipboardConnection(BuildingPlacement placement,
+            out PropertyConnection connection)
+        {
+            connection = default;
+            return ContainsPlacement(placement) &&
+                network.TryGetConnection(placement.AnchorCell, out connection);
+        }
+
+        public bool TryPlanClipboardConnections(
+            IReadOnlyList<PropertyGroupCopyItem> items, Vector2Int anchor,
+            ISet<Vector2Int> buildingCells,
+            out IReadOnlyList<PropertyGroupCopyItem> ordered)
+            => TryPlanClipboardConnectionsCore(items, anchor, buildingCells,
+                null, out ordered);
+
+        public bool TryPlanClipboardConnections(
+            IReadOnlyList<PropertyGroupCopyItem> items, Vector2Int anchor,
+            ISet<Vector2Int> buildingCells,
+            IReadOnlyList<Vector2Int> removedAfterPaste,
+            out IReadOnlyList<PropertyGroupCopyItem> ordered)
+        {
+            if (!TryPlanClipboardConnectionsCore(items, anchor, buildingCells,
+                    null, out ordered)) return false;
+            return removedAfterPaste == null || removedAfterPaste.Count == 0 ||
+                TryPlanClipboardConnectionsCore(items, anchor, buildingCells,
+                    removedAfterPaste, out _);
+        }
+
+        private bool TryPlanClipboardConnectionsCore(
+            IReadOnlyList<PropertyGroupCopyItem> items, Vector2Int anchor,
+            ISet<Vector2Int> buildingCells,
+            IReadOnlyList<Vector2Int> removedAfterPaste,
+            out IReadOnlyList<PropertyGroupCopyItem> ordered)
+        {
+            var plan = new List<PropertyGroupCopyItem>(items.Count);
+            var remaining = new List<PropertyGroupCopyItem>(items);
+            CookingPropertyNetwork preview = network.CopyForPreview();
+            if (removedAfterPaste != null)
+                foreach (Vector2Int cell in removedAfterPaste)
+                    preview.Remove(cell);
+            var targetCells = new HashSet<Vector2Int>();
+            foreach (PropertyGroupCopyItem item in items)
+            {
+                Vector2Int cell = anchor + item.Offset;
+                if (!targetCells.Add(cell) || buildingCells.Contains(cell) ||
+                    !occupancy.CanPlace(cell, Vector2Int.one, BuildingRotation.Degrees0))
+                {
+                    ordered = null;
+                    return false;
+                }
+            }
+            while (remaining.Count > 0)
+            {
+                bool progressed = false;
+                for (int index = 0; index < remaining.Count; index++)
+                {
+                    PropertyGroupCopyItem item = remaining[index];
+                    Vector2Int cell = anchor + item.Offset;
+                    bool added = item.Connection.Kind switch
+                    {
+                        PropertyConnectionKind.Collector =>
+                            preview.TryAddCollector(cell, item.Connection.SourceCell),
+                        PropertyConnectionKind.Pipe => preview.TryAddPipe(cell),
+                        _ => false
+                    };
+                    if (!added || !preview.TryGetConnection(cell,
+                            out PropertyConnection placed) ||
+                        placed.SourceCell != item.Connection.SourceCell)
+                    {
+                        if (added) preview.Remove(cell);
+                        continue;
+                    }
+                    plan.Add(item);
+                    remaining.RemoveAt(index--);
+                    progressed = true;
+                }
+                if (progressed) continue;
+                ordered = null;
+                return false;
+            }
+            ordered = plan;
+            return true;
+        }
+
+        public bool TryPlaceClipboardConnection(PropertyGroupCopyItem item,
+            Vector2Int anchor)
+        {
+            Vector2Int cell = anchor + item.Offset;
+            return item.Connection.Kind switch
+            {
+                PropertyConnectionKind.Collector =>
+                    TryPlaceCollector(cell, item.Connection.SourceCell),
+                PropertyConnectionKind.Pipe => TryPlacePipe(cell),
+                _ => false
+            };
+        }
 
         public void RegisterProcessorPort(Vector2Int cell, Vector2Int outsideCell)
         {
@@ -239,9 +378,16 @@ namespace FantasyShapez.Food
         {
             if (Keyboard.current?.escapeKey.wasPressedThisFrame == true)
             {
-                tool = Tool.None;
+                ExitTool();
                 return;
             }
+
+            if (tool == Tool.Pipe)
+            {
+                HandlePipeDrag();
+                return;
+            }
+            CancelPipeDrag();
 
             if (Mouse.current == null || !Mouse.current.leftButton.wasPressedThisFrame ||
                 IsPointerOverPanel())
@@ -268,6 +414,57 @@ namespace FantasyShapez.Food
             if (!added)
             {
                 return;
+            }
+        }
+
+        private void HandlePipeDrag()
+        {
+            if (Mouse.current == null) return;
+            if (!Mouse.current.leftButton.isPressed)
+            {
+                if (pipeDrag.IsActive && !IsPointerOverPanel())
+                {
+                    IReadOnlyList<bool> valid = PreviewPipePath(pipePath);
+                    for (int index = 0; index < pipePath.Count; index++)
+                        if (valid[index]) TryPlacePipe(pipePath[index]);
+                }
+                CancelPipeDrag();
+                return;
+            }
+            if (IsPointerOverPanel() ||
+                !Mouse.current.leftButton.wasPressedThisFrame && !pipeDrag.IsActive)
+                return;
+            foreach (Vector2Int cell in pipeDrag.Continue(hover.HoveredCell))
+                pipePath.Add(cell);
+            RefreshPipePreview();
+        }
+
+        private void RefreshPipePreview()
+        {
+            if (pipePreview != null) DestroyVisual(pipePreview);
+            pipePreview = new GameObject("Pipe drag preview");
+            pipePreview.transform.SetParent(visualParent, false);
+            IReadOnlyList<bool> valid = PreviewPipePath(pipePath);
+            pipePreviewReason = null;
+            for (int index = 0; index < pipePath.Count; index++)
+            {
+                Vector2Int cell = pipePath[index];
+                var marker = new GameObject($"Pipe {cell}");
+                marker.transform.SetParent(pipePreview.transform, false);
+                marker.transform.position = grid.GridToWorld(cell) +
+                    new Vector3(0f, 0f, -0.08f);
+                marker.transform.localScale = Vector3.one * grid.CellSize * 0.55f;
+                SpriteRenderer renderer = marker.AddComponent<SpriteRenderer>();
+                renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
+                renderer.color = valid[index]
+                    ? new Color(0.3f, 0.95f, 0.5f, 0.65f)
+                    : new Color(1f, 0.25f, 0.2f, 0.7f);
+                renderer.sortingOrder = 70;
+                if (!valid[index])
+                    pipePreviewReason = occupancy.CanPlace(cell, Vector2Int.one,
+                            BuildingRotation.Degrees0)
+                        ? "Start at a Collector or connected Pipe; keep one Property Source."
+                        : "Cannot overlap another building.";
             }
         }
 
@@ -329,13 +526,13 @@ namespace FantasyShapez.Food
             }
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Collector")) tool = Tool.Collector;
-            if (GUILayout.Button("Pipe")) tool = Tool.Pipe;
-            if (debugTools && GUILayout.Button("Test load")) tool = Tool.TestDemand;
+            if (GUILayout.Button("Collector")) SelectTool(Tool.Collector);
+            if (GUILayout.Button("Pipe")) SelectTool(Tool.Pipe);
+            if (debugTools && GUILayout.Button("Test load")) SelectTool(Tool.TestDemand);
             GUILayout.EndHorizontal();
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Remove")) tool = Tool.Remove;
-            if (GUILayout.Button("Exit (Esc)")) tool = Tool.None;
+            if (GUILayout.Button("Remove")) SelectTool(Tool.Remove);
+            if (GUILayout.Button("Exit (Esc)")) ExitTool();
             GUILayout.EndHorizontal();
             GUILayout.Label(debugTools ?
                 "Select a tool, then click the map. Test loads use 1 capacity." :
@@ -354,6 +551,25 @@ namespace FantasyShapez.Food
 
             GUILayout.Label(message);
             GUILayout.EndArea();
+            if (!string.IsNullOrEmpty(pipePreviewReason))
+            {
+                Vector2 pointer = Mouse.current?.position.ReadValue() ?? Vector2.zero;
+                const float tooltipWidth = 250f;
+                GUIStyle style = new(GUI.skin.box) { wordWrap = true };
+                float height = Mathf.Max(30f,
+                    style.CalcHeight(new GUIContent(pipePreviewReason), tooltipWidth));
+                float x = Mathf.Clamp(pointer.x + 16f, 8f,
+                    Mathf.Max(8f, Screen.width - tooltipWidth - 8f));
+                float y = Mathf.Clamp(Screen.height - pointer.y + 16f, 8f,
+                    Mathf.Max(8f, Screen.height - height - 8f));
+                GUI.Box(new Rect(x, y, tooltipWidth, height), pipePreviewReason, style);
+            }
+        }
+
+        private void SelectTool(Tool selected)
+        {
+            CancelPipeDrag();
+            tool = selected;
         }
 
         private PropertyConnection GetConnection(Vector2Int cell)

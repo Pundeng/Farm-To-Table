@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using FantasyShapez.Buildings;
 using FantasyShapez.Logistics;
+using FantasyShapez.Food;
 using FantasyShapez.Production;
 using FantasyShapez.Runes;
 using NUnit.Framework;
@@ -12,6 +13,40 @@ namespace FantasyShapez.Tests.EditMode
 {
     public sealed class GridOccupancyTests
     {
+        [Test]
+        public void RectangleSelection_IncludesFarmPlotBelowHarvesterOverlay()
+        {
+            var occupancy = new GridOccupancy();
+            Assert.That(occupancy.TryRegister(nameof(FarmPlot), Vector2Int.zero,
+                Vector2Int.one, BuildingRotation.Degrees0,
+                out BuildingPlacement plot), Is.True);
+            Assert.That(occupancy.TryRegisterOver(nameof(Harvester), Vector2Int.zero,
+                new Vector2Int(1, 2), BuildingRotation.Degrees0,
+                Vector2Int.zero, plot, out BuildingPlacement harvester), Is.True);
+            var selection = new BuildingSelection();
+            selection.SelectRectangle(occupancy, Vector2Int.zero, Vector2Int.zero,
+                _ => true, includeUnderlying: true);
+            CollectionAssert.AreEquivalent(new[] { plot, harvester },
+                selection.SelectedPlacements);
+        }
+
+        [Test]
+        public void PropertyClipboard_RotationKeepsCropAndRelativeCell()
+        {
+            var option = new BuildingPlacementOption();
+            var connection = new PropertyConnection(new Vector2Int(3, 1),
+                Vector2Int.zero, CookingProperty.Heat,
+                PropertyConnectionKind.Pipe);
+            var group = new BuildingGroupCopy(new[]
+            {
+                new BuildingGroupCopyItem(option, new Vector2Int(1, 1),
+                    BuildingRotation.Degrees0, cropId: "Apple")
+            }, new[] { connection });
+            BuildingGroupCopy rotated = group.RotateClockwise();
+            Assert.That(rotated.Items[0].CropId, Is.EqualTo("Apple"));
+            Assert.That(rotated.PropertyItems[0].Offset - rotated.Items[0].Offset,
+                Is.EqualTo(new Vector2Int(0, -2)));
+        }
         [Test]
         public void GroupMove_AllowsOverlapWithItsOwnSourceFootprints()
         {

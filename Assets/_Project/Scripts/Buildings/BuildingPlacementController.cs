@@ -83,7 +83,7 @@ namespace FantasyShapez.Buildings
         private readonly BeltDragPlacementPlanner beltDragPlanner = new();
         private readonly GridDragTracker placementDrag = new();
         private readonly GridDragTracker removalDrag = new();
-        private BuildingPlacement pendingRightClickRemoval;
+        private BuildingPlacement outlinedRemoval;
         private GameObject removalOutline;
         private Material removalOutlineMaterial;
         private readonly BuildingSelection selection = new();
@@ -93,11 +93,12 @@ namespace FantasyShapez.Buildings
         private BuildingRotation selectedRotation;
         private readonly BuildingToolRotationMemory rememberedRotations = new();
         private int constructionCategory;
-        private bool suppressRemovalUntilRelease;
-        private bool demolishToolActive;
+        private bool suppressRightRemovalUntilRelease;
         private bool systemMenuOpen;
         private bool devInspectorOpen;
         private DemoPanel demoPanel;
+        private FarmPlot cropPickerPlot;
+        private string rememberedFarmCropId;
         private Vector2 buildMenuScroll;
         private static readonly string[] HotbarBuildingIds =
         {
@@ -113,7 +114,9 @@ namespace FantasyShapez.Buildings
         private BuildingGroupCopy activeGroup;
         private readonly List<BuildingPlacement> moveSources = new();
         private readonly HashSet<BuildingPlacement> moveSourceSet = new();
+        private readonly List<Vector2Int> movePropertySources = new();
         private readonly List<BuildingPreview> groupPreviews = new();
+        private readonly List<GameObject> propertyGroupPreviews = new();
         private bool isGroupPasteModeActive;
         private bool pasteAwaitingMouseRelease;
         private PropertySupplyPlayMode propertySupply;
@@ -144,6 +147,7 @@ namespace FantasyShapez.Buildings
         public void OpenPanel(DemoPanel panel)
         {
             if (!foodDemoControls) return;
+            cropPickerPlot = null;
             if (panel == DemoPanel.None) { ClosePanel(); return; }
             if (demoPanel == panel && panel == DemoPanel.Region) return;
             if (demoPanel == panel && panel != DemoPanel.Machine)
@@ -430,13 +434,6 @@ namespace FantasyShapez.Buildings
                 return;
             }
 
-            if (!Mouse.current.rightButton.isPressed)
-            {
-                if (pendingRightClickRemoval != null)
-                    TryRemovePlacement(pendingRightClickRemoval);
-                pendingRightClickRemoval = null;
-                ClearRemovalOutline();
-            }
 
             if (!foodDemoControls && Keyboard.current.f8Key.wasPressedThisFrame)
             {
@@ -450,11 +447,12 @@ namespace FantasyShapez.Buildings
                     return;
                 if (Mouse.current.rightButton.wasPressedThisFrame)
                 {
-                    if (isGroupPasteModeActive || demolishToolActive ||
-                        isPlacementModeActive)
+                    if (isGroupPasteModeActive ||
+                        isPlacementModeActive || propertySupply?.IsActive == true)
                     {
                         if (isGroupPasteModeActive) ExitGroupPasteMode();
                         else CancelDemoTool();
+                        suppressRightRemovalUntilRelease = true;
                         ClearRightClickRemoval();
                         return;
                     }
@@ -465,7 +463,16 @@ namespace FantasyShapez.Buildings
                     return;
                 }
                 HandleDemoHotbarShortcuts();
-                if (demoPanel != DemoPanel.None && demoPanel != DemoPanel.Property &&
+                if (cropPickerPlot != null &&
+                    Mouse.current.leftButton.wasPressedThisFrame &&
+                    !CropPickerRect.Contains(GetGuiPointer()))
+                {
+                    cropPickerPlot = null;
+                    return;
+                }
+                if (demoPanel != DemoPanel.None &&
+                    (demoPanel != DemoPanel.Property ||
+                     propertySupply?.IsActive != true) &&
                     Mouse.current.leftButton.wasPressedThisFrame &&
                     !IsPointerOverDemoHud() &&
                     !(demoPanel == DemoPanel.Region && marketPanel?.IsPointerOverRegionPanel == true))
@@ -474,7 +481,7 @@ namespace FantasyShapez.Buildings
                     return;
                 }
                 if (Mouse.current.leftButton.wasPressedThisFrame &&
-                    !isPlacementModeActive && !demolishToolActive &&
+                    !isPlacementModeActive &&
                     propertySupply?.IsActive != true &&
                     propertySupply?.IsPointerOverPanel() != true &&
                     marketPanel?.TryOpenAt(hoverHighlight.HoveredCell) == true)
@@ -488,7 +495,6 @@ namespace FantasyShapez.Buildings
                 IsPointerOverInterface)
             {
                 isPlacementModeActive = false;
-                suppressRemovalUntilRelease = true;
                 placementPreview.Hide();
                 placementDrag.Reset();
                 beltDragPlanner.Reset();
@@ -497,7 +503,12 @@ namespace FantasyShapez.Buildings
 
             if (IsPointerOverInterface)
             {
+                if (Mouse.current.rightButton.wasPressedThisFrame)
+                    suppressRightRemovalUntilRelease = true;
                 ClearRightClickRemoval();
+                if (propertySupply?.IsPipeDragging == true &&
+                    !Mouse.current.leftButton.isPressed)
+                    propertySupply.CancelPipeDrag();
                 if (isPlacementModeActive && Keyboard.current.escapeKey.wasPressedThisFrame)
                     isPlacementModeActive = false;
                 else if (isPlacementModeActive && Keyboard.current.rKey.wasPressedThisFrame)
@@ -589,6 +600,11 @@ namespace FantasyShapez.Buildings
                 anchorCell,
                 previewRotation,
                 canPlace);
+            placementPreview.SetPortConnectionFeedback(
+                GetPortConnectionFeedback(selectedOption, previewRotation));
+            placementPreview.SetDirectionConnectionFeedback(
+                GetBeltConnectionFeedback(selectedOption, anchorCell,
+                    previewRotation));
             placementPreview.SetReason(canPlace ? null :
                 GetPlacementFailureReason(selectedOption, anchorCell, previewRotation));
 
@@ -784,7 +800,6 @@ namespace FantasyShapez.Buildings
             if (!foodDemoControls && Mouse.current.rightButton.wasPressedThisFrame)
             {
                 isPlacementModeActive = false;
-                suppressRemovalUntilRelease = true;
                 placementPreview.Hide();
                 placementDrag.Reset();
                 beltDragPlanner.Reset();
@@ -806,19 +821,70 @@ namespace FantasyShapez.Buildings
             }
 
             copiedGroup = group;
+            constructionMessage = $"Copied {group.Items.Count + group.PropertyItems.Count} selected parts.";
             ExitGroupPasteMode();
         }
 
         private void CutSelection()
         {
             var sources = new List<BuildingPlacement>(selection.SelectedPlacements);
-            if (sources.Count == 0 || !CanMoveSources(sources) ||
+            if (sources.Count == 0 ||
+                !(foodDemoControls ? CanCutDemoSources(sources) : CanMoveSources(sources)) ||
                 !TryCaptureSelection(out BuildingGroupCopy group))
             {
                 return;
             }
 
+            copiedGroup = group;
             EnterGroupPasteMode(group, sources);
+            constructionMessage = "Choose a destination for the cut selection.";
+        }
+
+        private bool CanCutDemoSources(IReadOnlyList<BuildingPlacement> sources)
+        {
+            foreach (BuildingPlacement source in sources)
+            {
+                if (buildingInstances.TryGetValue(source, out PlacedBuilding building))
+                {
+                    if (source.DefinitionId == nameof(FarmPlot) &&
+                        occupancy.TryGetBuilding(source.AnchorCell,
+                            out BuildingPlacement covering) && covering != source &&
+                        !sources.Contains(covering))
+                    {
+                        constructionMessage = "Select the covering Harvester with its Farm Plot.";
+                        return false;
+                    }
+                    if (HasActiveDemoItems(building.gameObject))
+                    {
+                        constructionMessage = $"Empty {source.DefinitionId} before cutting it.";
+                        return false;
+                    }
+                    if (CanRemove(building.gameObject)) continue;
+                    constructionMessage = $"{source.DefinitionId} cannot be cut now.";
+                    return false;
+                }
+                if (propertySupply?.TryGetClipboardConnection(source,
+                        out PropertyConnection connection) == true &&
+                    connection.Kind is PropertyConnectionKind.Collector or
+                        PropertyConnectionKind.Pipe) continue;
+                constructionMessage = "This Property connection cannot be cut.";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool HasActiveDemoItems(GameObject building)
+        {
+            return building.TryGetComponent(out FarmPlot plot) && plot.MatureCount > 0 ||
+                building.TryGetComponent(out Harvester harvester) &&
+                    harvester.OutputCount > 0 ||
+                building.TryGetComponent(out Belt belt) && !belt.CanMove ||
+                building.TryGetComponent(out Processor processor) &&
+                    processor.State != ProcessorState.Idle ||
+                building.TryGetComponent(out BasicMixer mixer) &&
+                    (mixer.SlotA != null || mixer.SlotB != null || mixer.HasOutput) ||
+                building.TryGetComponent(out Cutter cutter) &&
+                    cutter.State != CutterState.Idle;
         }
 
         private bool TryCaptureSelection(out BuildingGroupCopy group)
@@ -830,12 +896,32 @@ namespace FantasyShapez.Buildings
             }
 
             var sourceItems = new List<BuildingGroupCopyItem>();
+            var propertyItems = new List<PropertyConnection>();
             foreach (BuildingPlacement placement in selection.SelectedPlacements)
             {
-                if (!buildingInstances.TryGetValue(placement, out PlacedBuilding instance) ||
-                    instance.GetComponent<Harvester>() != null ||
-                    !TryGetCopyOption(placement, out BuildingPlacementOption option))
+                if (!buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
                 {
+                    if (foodDemoControls &&
+                        propertySupply?.TryGetClipboardConnection(placement,
+                            out PropertyConnection connection) == true &&
+                        connection.Kind is PropertyConnectionKind.Collector or
+                            PropertyConnectionKind.Pipe)
+                    {
+                        propertyItems.Add(connection);
+                        continue;
+                    }
+                    constructionMessage = $"Cannot copy {placement.DefinitionId}.";
+                    return false;
+                }
+
+                if (!TryGetCopyOption(placement, out BuildingPlacementOption option))
+                {
+                    constructionMessage = $"Cannot copy {placement.DefinitionId}.";
+                    return false;
+                }
+                if (!foodDemoControls && instance.GetComponent<Harvester>() != null)
+                {
+                    constructionMessage = "Harvester copying is unavailable in Prototype.";
                     return false;
                 }
 
@@ -844,10 +930,11 @@ namespace FantasyShapez.Buildings
                     placement.AnchorCell,
                     placement.Rotation,
                     instance.GetComponent<Engraver>()?.CaptureRecipeConfiguration(),
-                    instance.GetComponent<ElementInfuser>()?.CaptureRecipeConfiguration()));
+                    instance.GetComponent<ElementInfuser>()?.CaptureRecipeConfiguration(),
+                    instance.GetComponent<FarmPlot>()?.SelectedCrop?.Id));
             }
 
-            group = new BuildingGroupCopy(sourceItems);
+            group = new BuildingGroupCopy(sourceItems, propertyItems);
             return true;
         }
 
@@ -913,13 +1000,21 @@ namespace FantasyShapez.Buildings
             activeGroup = group;
             if (sources != null)
             {
-                moveSources.AddRange(sources);
-                moveSourceSet.UnionWith(sources);
+                foreach (BuildingPlacement source in sources)
+                {
+                    if (buildingInstances.ContainsKey(source))
+                    {
+                        moveSources.Add(source);
+                        moveSourceSet.Add(source);
+                    }
+                    else if (propertySupply?.ContainsPlacement(source) == true)
+                        movePropertySources.Add(source.AnchorCell);
+                }
             }
             isPlacementModeActive = false;
-            if (foodDemoControls) demolishToolActive = false;
             selectionStartCell = null;
             HideSelectionArea();
+            ClearRightClickRemoval();
             beltDragPlanner.Reset();
             placementDrag.Reset();
             placementPreview.Hide();
@@ -928,6 +1023,15 @@ namespace FantasyShapez.Buildings
                 var previewObject = new GameObject("Group Paste Preview");
                 previewObject.transform.SetParent(transform, false);
                 groupPreviews.Add(previewObject.AddComponent<BuildingPreview>());
+            }
+            foreach (PropertyGroupCopyItem item in activeGroup.PropertyItems)
+            {
+                var previewObject = new GameObject("Property Paste Preview");
+                previewObject.transform.SetParent(transform, false);
+                SpriteRenderer renderer = previewObject.AddComponent<SpriteRenderer>();
+                renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
+                renderer.sortingOrder = 75;
+                propertyGroupPreviews.Add(previewObject);
             }
 
             isGroupPasteModeActive = true;
@@ -941,6 +1045,7 @@ namespace FantasyShapez.Buildings
             activeGroup = null;
             moveSources.Clear();
             moveSourceSet.Clear();
+            movePropertySources.Clear();
             foreach (BuildingPreview preview in groupPreviews)
             {
                 if (preview != null)
@@ -950,15 +1055,20 @@ namespace FantasyShapez.Buildings
             }
 
             groupPreviews.Clear();
+            foreach (GameObject preview in propertyGroupPreviews)
+                if (preview != null) Destroy(preview);
+            propertyGroupPreviews.Clear();
         }
 
         private void HandleGroupPasteInput()
         {
             Vector2Int anchorCell = hoverHighlight.HoveredCell;
-            bool canPlaceGroup =
-                (moveSources.Count == 0 || CanMoveSources(moveSources)) &&
-                activeGroup.CanPlace(anchorCell, occupancy,
-                    moveSources.Count == 0 ? null : moveSourceSet);
+            bool canPlaceGroup = foodDemoControls
+                ? CanPlaceDemoGroup(anchorCell,
+                    out IReadOnlyList<PropertyGroupCopyItem> _)
+                : (moveSources.Count == 0 || CanMoveSources(moveSources)) &&
+                    activeGroup.CanPlace(anchorCell, occupancy,
+                        moveSources.Count == 0 ? null : moveSourceSet);
             for (int index = 0; index < activeGroup.Items.Count; index++)
             {
                 BuildingGroupCopyItem item = activeGroup.Items[index];
@@ -969,6 +1079,17 @@ namespace FantasyShapez.Buildings
                     item.Rotation,
                     canPlaceGroup);
             }
+            for (int index = 0; index < activeGroup.PropertyItems.Count; index++)
+            {
+                PropertyGroupCopyItem item = activeGroup.PropertyItems[index];
+                GameObject preview = propertyGroupPreviews[index];
+                preview.transform.position = gridSystem.GridToWorld(
+                    anchorCell + item.Offset) + new Vector3(0f, 0f, -0.07f);
+                preview.transform.localScale = Vector3.one * gridSystem.CellSize * 0.5f;
+                preview.GetComponent<SpriteRenderer>().color = canPlaceGroup
+                    ? new Color(0.25f, 0.95f, 0.45f, 0.7f)
+                    : new Color(0.95f, 0.25f, 0.2f, 0.7f);
+            }
 
             if (pasteAwaitingMouseRelease)
             {
@@ -978,6 +1099,12 @@ namespace FantasyShapez.Buildings
 
             if (!canPlaceGroup || !Mouse.current.leftButton.wasPressedThisFrame)
             {
+                return;
+            }
+
+            if (foodDemoControls)
+            {
+                PlaceDemoGroup(anchorCell);
                 return;
             }
 
@@ -1053,6 +1180,127 @@ namespace FantasyShapez.Buildings
             ExitGroupPasteMode();
         }
 
+        private bool CanPlaceDemoGroup(Vector2Int anchor,
+            out IReadOnlyList<PropertyGroupCopyItem> propertyPlan)
+        {
+            propertyPlan = null;
+            if ((moveSources.Count > 0 || movePropertySources.Count > 0) &&
+                !CanCutDemoSources(selection.SelectedPlacements))
+                return false;
+            var occupied = new HashSet<Vector2Int>();
+            var overlay = new HashSet<Vector2Int>();
+            foreach (BuildingGroupCopyItem item in activeGroup.Items)
+            {
+                if (item.Option.Definition.Id == nameof(Harvester)) continue;
+                Vector2Int cell = anchor + item.Offset;
+                BuildingDefinition definition = item.Option.Definition;
+                if (IsMachineLocked(item.Option) ||
+                    !occupancy.CanPlace(definition, cell, item.Rotation) ||
+                    !CanSatisfyPlacementBehavior(item.Option, cell, item.Rotation))
+                    return false;
+                var candidate = new BuildingPlacement(definition.Id, cell,
+                    definition.Footprint, item.Rotation, definition.OccupiedCells);
+                foreach (Vector2Int occupiedCell in candidate.OccupiedCells)
+                    if (!occupied.Add(occupiedCell)) return false;
+            }
+            foreach (BuildingGroupCopyItem item in activeGroup.Items)
+            {
+                if (item.Option.Definition.Id != nameof(Harvester)) continue;
+                Vector2Int cell = anchor + item.Offset;
+                Vector2Int farm = HarvesterPlacementBehavior.GetFarmCell(cell,
+                    item.Option.Definition.Footprint, item.Rotation);
+                bool copiedPlot = activeGroup.Items.Any(other =>
+                    other.Option.Definition.Id == nameof(FarmPlot) &&
+                    anchor + other.Offset == farm);
+                bool existingPlot = occupancy.TryGetUnderlyingBuilding(farm,
+                        out BuildingPlacement plot) &&
+                    plot.DefinitionId == nameof(FarmPlot) &&
+                    FarmPlot.GetAt(farm) != null &&
+                    occupancy.TryGetBuilding(farm, out BuildingPlacement top) && top == plot;
+                if (!copiedPlot && !existingPlot ||
+                    !copiedPlot && !occupancy.CanPlaceOver(cell,
+                        item.Option.Definition.Footprint, item.Rotation, farm, plot))
+                    return false;
+                var candidate = new BuildingPlacement(nameof(Harvester), cell,
+                    item.Option.Definition.Footprint, item.Rotation);
+                foreach (Vector2Int candidateCell in candidate.OccupiedCells)
+                {
+                    if (!overlay.Add(candidateCell)) return false;
+                    if (candidateCell == farm) continue;
+                    if (!occupancy.CanPlace(candidateCell, Vector2Int.one,
+                            BuildingRotation.Degrees0) || !occupied.Add(candidateCell))
+                        return false;
+                }
+            }
+            return activeGroup.PropertyItems.Count == 0 ||
+                propertySupply.TryPlanClipboardConnections(activeGroup.PropertyItems,
+                    anchor, occupied, movePropertySources, out propertyPlan);
+        }
+
+        private void PlaceDemoGroup(Vector2Int anchor)
+        {
+            if (!CanPlaceDemoGroup(anchor,
+                    out IReadOnlyList<PropertyGroupCopyItem> propertyPlan)) return;
+            var placedBuildings = new List<BuildingPlacement>();
+            var placedProperties = new List<Vector2Int>();
+            bool failed = false;
+            try
+            {
+                IEnumerable<BuildingGroupCopyItem> ordered = activeGroup.Items
+                    .OrderBy(item => item.Option.Definition.Id == nameof(FarmPlot) ? 0 :
+                        item.Option.Definition.Id == nameof(Harvester) ? 2 : 1);
+                foreach (BuildingGroupCopyItem item in ordered)
+                {
+                    if (!PlaceBuilding(item.Option, anchor + item.Offset, item.Rotation,
+                            item.EngraverRecipe, item.InfuserRecipe,
+                            out BuildingPlacement placed))
+                    {
+                        failed = true;
+                        break;
+                    }
+                    placedBuildings.Add(placed);
+                    if (item.CropId == null) continue;
+                    FarmPlot plot = buildingInstances[placed].GetComponent<FarmPlot>();
+                    CropDefinition crop = plot.AvailableCrops.FirstOrDefault(candidate =>
+                        candidate.Id == item.CropId && plot.IsCropUnlocked(candidate));
+                    if (crop == null) { failed = true; break; }
+                    plot.SelectCrop(crop);
+                }
+                if (!failed && propertyPlan != null)
+                    foreach (PropertyGroupCopyItem item in propertyPlan)
+                    {
+                        if (!propertySupply.TryPlaceClipboardConnection(item, anchor))
+                        {
+                            failed = true;
+                            break;
+                        }
+                        placedProperties.Add(anchor + item.Offset);
+                    }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, this);
+                failed = true;
+            }
+            if (failed)
+            {
+                for (int index = placedProperties.Count - 1; index >= 0; index--)
+                    propertySupply.TryRemoveConnection(placedProperties[index]);
+                foreach (BuildingPlacement placement in placedBuildings
+                             .OrderByDescending(item => item.DefinitionId == nameof(Harvester)))
+                    TryRemovePlacement(placement);
+                constructionMessage = "Paste failed; the original selection was kept.";
+                return;
+            }
+            foreach (BuildingPlacement source in moveSources
+                         .OrderByDescending(item => item.DefinitionId == nameof(Harvester)))
+                TryRemovePlacement(source);
+            foreach (Vector2Int cell in movePropertySources)
+                propertySupply.TryRemoveConnection(cell);
+            constructionMessage = $"Placed {placedBuildings.Count + placedProperties.Count} parts.";
+            ExitGroupPasteMode();
+        }
+
         private void RestoreFailedGroupPlacement(IReadOnlyList<BuildingPlacement> placedItems)
         {
             foreach (BuildingPlacement placed in placedItems)
@@ -1081,65 +1329,30 @@ namespace FantasyShapez.Buildings
 
         private void HandleRemovalInput()
         {
-            if (foodDemoControls)
+            if (!foodDemoControls || isPlacementModeActive || isGroupPasteModeActive ||
+                propertySupply?.IsActive == true)
             {
-                if (demolishToolActive)
-                {
-                    ClearRightClickRemoval();
-                    if (isPlacementModeActive || !Mouse.current.leftButton.isPressed)
-                    {
-                        removalDrag.Reset();
-                        return;
-                    }
-                    if (Mouse.current.leftButton.wasPressedThisFrame || removalDrag.IsActive)
-                        foreach (Vector2Int cell in removalDrag.Continue(hoverHighlight.HoveredCell))
-                            TryRemoveBuilding(cell);
-                    return;
-                }
-            }
-            if (suppressRemovalUntilRelease || isPlacementModeActive)
-            {
-                if (!Mouse.current.rightButton.isPressed)
-                    suppressRemovalUntilRelease = false;
-                removalDrag.Reset();
                 ClearRightClickRemoval();
                 return;
             }
             if (!Mouse.current.rightButton.isPressed)
+                suppressRightRemovalUntilRelease = false;
+            if (occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
+                    out BuildingPlacement hovered) &&
+                CanRemovePlacement(hovered))
             {
+                if (outlinedRemoval != hovered) ShowRemovalOutline(hovered);
+            }
+            else ClearRemovalOutline();
+            if (!Mouse.current.rightButton.isPressed || suppressRightRemovalUntilRelease)
                 removalDrag.Reset();
-                return;
-            }
-
-            if (!Mouse.current.rightButton.wasPressedThisFrame && !removalDrag.IsActive)
-            {
-                return;
-            }
-
-            foreach (Vector2Int cell in removalDrag.Continue(hoverHighlight.HoveredCell))
-                if (occupancy.TryGetBuilding(cell, out BuildingPlacement placement) &&
-                    buildingInstances.TryGetValue(placement, out PlacedBuilding instance) &&
-                    CanRemove(instance.gameObject) && placement != pendingRightClickRemoval)
-                {
-                    if (pendingRightClickRemoval != null)
-                        TryRemovePlacement(pendingRightClickRemoval);
-                    pendingRightClickRemoval = placement;
-                    ShowRemovalOutline(placement);
-                }
-
-            if (!occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
-                    out BuildingPlacement hovered) || hovered != pendingRightClickRemoval)
-            {
-                if (pendingRightClickRemoval != null)
-                    TryRemovePlacement(pendingRightClickRemoval);
-                pendingRightClickRemoval = null;
-                ClearRemovalOutline();
-            }
+            else if (Mouse.current.rightButton.wasPressedThisFrame || removalDrag.IsActive)
+                foreach (Vector2Int cell in removalDrag.Continue(hoverHighlight.HoveredCell))
+                    TryRemoveBuilding(cell);
         }
 
         private void ClearRightClickRemoval()
         {
-            pendingRightClickRemoval = null;
             removalDrag.Reset();
             ClearRemovalOutline();
         }
@@ -1151,6 +1364,7 @@ namespace FantasyShapez.Buildings
                 Destroy(removalOutline);
                 removalOutline = null;
             }
+            outlinedRemoval = null;
         }
 
         private void OnDestroy()
@@ -1171,6 +1385,7 @@ namespace FantasyShapez.Buildings
         private void ShowRemovalOutline(BuildingPlacement placement)
         {
             ClearRemovalOutline();
+            outlinedRemoval = placement;
             removalOutline = new GameObject("Right-click removal outline");
             removalOutline.transform.SetParent(transform, false);
             if (removalOutlineMaterial == null)
@@ -1226,7 +1441,6 @@ namespace FantasyShapez.Buildings
 
         private bool HandleSelectionInput()
         {
-            if (foodDemoControls && demolishToolActive) return false;
             if (!selectionStartCell.HasValue &&
                 Keyboard.current.shiftKey.isPressed &&
                 Mouse.current.leftButton.wasPressedThisFrame)
@@ -1244,7 +1458,10 @@ namespace FantasyShapez.Buildings
                     occupancy,
                     selectionStartCell.Value,
                     endCell,
-                    buildingInstances.ContainsKey);
+                    placement => buildingInstances.ContainsKey(placement) ||
+                        foodDemoControls &&
+                        propertySupply?.ContainsPlacement(placement) == true,
+                    foodDemoControls);
                 RefreshSelectionHighlights();
                 ShowSelectionArea(selectionStartCell.Value, endCell);
                 if (!Mouse.current.leftButton.isPressed)
@@ -1370,7 +1587,12 @@ namespace FantasyShapez.Buildings
                 placementDrag.Reset();
                 if (Mouse.current.leftButton.wasPressedThisFrame && canPlace)
                 {
-                    PlaceBuilding(option, anchorCell, selectedRotation);
+                    if (PlaceBuilding(option, anchorCell, selectedRotation,
+                            copiedEngraverRecipe, copiedInfuserRecipe,
+                            out BuildingPlacement placed) && foodDemoControls &&
+                        option.Definition.Id == nameof(FarmPlot) &&
+                        buildingInstances[placed].TryGetComponent(out FarmPlot plot))
+                        OpenCropPicker(plot);
                 }
 
                 return;
@@ -1398,8 +1620,21 @@ namespace FantasyShapez.Buildings
 
         private void TryRemovePlacement(BuildingPlacement placement)
         {
-            if (!buildingInstances.TryGetValue(placement, out PlacedBuilding instance) ||
-                !CanRemove(instance.gameObject))
+            if (!buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
+            {
+                if (foodDemoControls &&
+                    propertySupply?.TryGetClipboardConnection(placement,
+                        out PropertyConnection connection) == true &&
+                    connection.Kind is PropertyConnectionKind.Collector or
+                        PropertyConnectionKind.Pipe &&
+                    propertySupply.TryRemoveConnection(placement.AnchorCell))
+                {
+                    selection.Remove(placement);
+                    RefreshSelectionHighlights();
+                }
+                return;
+            }
+            if (!CanRemove(instance.gameObject))
             {
                 return;
             }
@@ -1415,7 +1650,7 @@ namespace FantasyShapez.Buildings
 
         private void HandleInteractionInput()
         {
-            if (isPlacementModeActive || demolishToolActive ||
+            if (isPlacementModeActive ||
                 !Mouse.current.leftButton.wasPressedThisFrame ||
                 !occupancy.TryGetBuilding(hoverHighlight.HoveredCell, out BuildingPlacement placement) ||
                 !buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
@@ -1706,9 +1941,9 @@ namespace FantasyShapez.Buildings
             selectedBuildingIndex = index;
             if (foodDemoControls)
             {
+                cropPickerPlot = null;
                 ClosePanel();
                 if (isGroupPasteModeActive) ExitGroupPasteMode();
-                demolishToolActive = false;
                 propertySupply?.ExitTool();
             }
             selectedRotation = GetRememberedRotation(buildingOptions[index]);
@@ -1722,8 +1957,8 @@ namespace FantasyShapez.Buildings
         {
             DemoEscapeAction action = DemoEscapePriority.Choose(
                 recipeDiscoveryPanel?.HasModal == true, systemMenuOpen,
-                demoPanel != DemoPanel.None,
-                isGroupPasteModeActive || demolishToolActive ||
+                demoPanel != DemoPanel.None || cropPickerPlot != null,
+                isGroupPasteModeActive ||
                 isPlacementModeActive || propertySupply?.IsActive == true,
                 selectionStartCell.HasValue || selection.SelectedPlacements.Count > 0);
             switch (action)
@@ -1735,7 +1970,8 @@ namespace FantasyShapez.Buildings
                     systemMenuOpen = false;
                     break;
                 case DemoEscapeAction.ClosePanel:
-                    ClosePanel();
+                    if (cropPickerPlot != null) cropPickerPlot = null;
+                    else ClosePanel();
                     break;
                 case DemoEscapeAction.CancelTool:
                     if (isGroupPasteModeActive) ExitGroupPasteMode();
@@ -1756,7 +1992,7 @@ namespace FantasyShapez.Buildings
 
         private void CancelDemoTool()
         {
-            demolishToolActive = false;
+            cropPickerPlot = null;
             isPlacementModeActive = false;
             propertySupply?.ExitTool();
             placementPreview.Hide();
@@ -1851,27 +2087,102 @@ namespace FantasyShapez.Buildings
             (Screen.height - Mathf.Min(300f, Screen.height - 16f)) * 0.5f,
             Mathf.Min(280f, Screen.width - 16f),
             Mathf.Min(300f, Screen.height - 16f));
+        private Vector2 GetGuiPointer()
+        {
+            Vector2 pointer = Mouse.current?.position.ReadValue() ?? Vector2.zero;
+            pointer.y = Screen.height - pointer.y;
+            return pointer;
+        }
+
+        private Rect CropPickerRect
+        {
+            get
+            {
+                if (cropPickerPlot == null || Camera.main == null) return Rect.zero;
+                Vector3 screen = Camera.main.WorldToScreenPoint(
+                    cropPickerPlot.transform.position);
+                float height = 42f + cropPickerPlot.AvailableCrops.Count * 27f;
+                return new Rect(
+                    Mathf.Clamp(screen.x + 18f, 8f,
+                        Mathf.Max(8f, Screen.width - 184f)),
+                    Mathf.Clamp(Screen.height - screen.y - height * 0.5f, 8f,
+                        Mathf.Max(8f, Screen.height - height - 8f)),
+                    176f, height);
+            }
+        }
+
+        private void OpenCropPicker(FarmPlot plot)
+        {
+            ClosePanel();
+            CropDefinition remembered = plot.AvailableCrops.FirstOrDefault(crop =>
+                crop != null && crop.Id == rememberedFarmCropId &&
+                plot.IsCropUnlocked(crop));
+            CropDefinition defaultCrop = remembered ??
+                plot.AvailableCrops.FirstOrDefault(plot.IsCropUnlocked);
+            if (defaultCrop != null) plot.SelectCrop(defaultCrop);
+            cropPickerPlot = plot;
+        }
+
+        private void DrawCropPicker()
+        {
+            if (cropPickerPlot == null) return;
+            Rect rect = CropPickerRect;
+            GUI.Box(rect, GUIContent.none);
+            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, rect.width - 16f, 22f),
+                "Choose Crop");
+            for (int index = 0; index < cropPickerPlot.AvailableCrops.Count; index++)
+            {
+                CropDefinition crop = cropPickerPlot.AvailableCrops[index];
+                if (crop == null) continue;
+                bool wasEnabled = GUI.enabled;
+                GUI.enabled = wasEnabled && cropPickerPlot.IsCropUnlocked(crop);
+                if (GUI.Button(new Rect(rect.x + 8f, rect.y + 30f + index * 27f,
+                        rect.width - 16f, 24f), crop.Id))
+                {
+                    cropPickerPlot.SelectCrop(crop);
+                    rememberedFarmCropId = crop.Id;
+                    cropPickerPlot = null;
+                    GUI.enabled = wasEnabled;
+                    break;
+                }
+                GUI.enabled = wasEnabled;
+            }
+        }
 
         private bool IsPointerOverDemoHud()
         {
             if (!foodDemoControls || Mouse.current == null) return false;
-            Vector2 pointer = Mouse.current.position.ReadValue();
-            pointer.y = Screen.height - pointer.y;
-            return systemMenuOpen || HotbarRect.Contains(pointer) ||
-                UtilityRect.Contains(pointer) ||
-                (demoPanel is DemoPanel.Build or DemoPanel.Help) && DemoPanelRect.Contains(pointer) ||
-                demoPanel == DemoPanel.Recipe && recipeDiscoveryPanel?.BlocksWorldInput == true ||
-                demoPanel == DemoPanel.Market && marketPanel?.IsPointerOverPanel == true ||
-                demoPanel == DemoPanel.Machine && engraverUpgradePanel?.IsPointerOverPanel == true ||
-                demoPanel == DemoPanel.Property && propertySupply?.IsPointerOverPanel() == true ||
-                demoPanel == DemoPanel.Region && marketPanel?.IsPointerOverRegionPanel == true;
+            return systemMenuOpen ||
+                IsPointerOverForegroundPanel() ||
+                HotbarRect.Contains(GetGuiPointer()) ||
+                UtilityRect.Contains(GetGuiPointer());
+        }
+
+        private bool IsPointerOverForegroundPanel()
+        {
+            if (!foodDemoControls || Mouse.current == null) return false;
+            Vector2 pointer = GetGuiPointer();
+            return cropPickerPlot != null && CropPickerRect.Contains(pointer) ||
+                (demoPanel is DemoPanel.Build or DemoPanel.Help) &&
+                    DemoPanelRect.Contains(pointer) ||
+                demoPanel == DemoPanel.Recipe &&
+                    recipeDiscoveryPanel?.BlocksWorldInput == true ||
+                demoPanel == DemoPanel.Market &&
+                    marketPanel?.IsPointerOverPanel == true ||
+                demoPanel == DemoPanel.Machine &&
+                    engraverUpgradePanel?.IsPointerOverPanel == true ||
+                demoPanel == DemoPanel.Property &&
+                    propertySupply?.IsPointerOverPanel() == true ||
+                demoPanel == DemoPanel.Region &&
+                    marketPanel?.IsPointerOverRegionPanel == true;
         }
 
         private void DrawDemoHud()
         {
             if (market == null) return;
             bool previousEnabled = GUI.enabled;
-            GUI.enabled = previousEnabled && !BlocksAllWorldInput;
+            GUI.enabled = previousEnabled && !BlocksAllWorldInput &&
+                !IsPointerOverForegroundPanel();
             GUI.Label(new Rect(12f, 8f, 180f, 22f), $"$ {market.Currency}");
             GUI.Label(new Rect(12f, 28f, 180f, 22f), secondaryResourceText);
             Vector2Int regionCell = Camera.main != null
@@ -1915,10 +2226,9 @@ namespace FantasyShapez.Buildings
             if (!string.IsNullOrEmpty(hoveredName))
                 GUI.Label(new Rect(hotbar.x, hotbar.y - 62f, hotbar.width, 20f),
                     hoveredName);
-            if (isPlacementModeActive || demolishToolActive)
+            if (isPlacementModeActive)
             {
-                string name = demolishToolActive ? "Demolish" :
-                    GetSelectedOption()?.Definition?.Id ?? "Build";
+                string name = GetSelectedOption()?.Definition?.Id ?? "Build";
                 GUI.Label(new Rect(hotbar.x, hotbar.y - 42f, hotbar.width, 40f),
                     $"{name}  |  {(isPlacementModeActive ? "R Rotate  ·  " : "")}Esc / Right Click Cancel");
             }
@@ -1933,10 +2243,12 @@ namespace FantasyShapez.Buildings
                 OpenPanel(DemoPanel.Help);
             if (GUI.Button(new Rect(utility.x + 98f, utility.y, 46f, 38f), "System"))
             {
+                cropPickerPlot = null;
                 ClosePanel();
                 systemMenuOpen = true;
             }
 
+            GUI.enabled = previousEnabled && !BlocksAllWorldInput;
             if (demoPanel == DemoPanel.Build) DrawBuildMenu();
             if (demoPanel == DemoPanel.Help) DrawHelpPanel();
             GUI.enabled = previousEnabled;
@@ -1948,9 +2260,13 @@ namespace FantasyShapez.Buildings
             if (devInspectorOpen)
                 GUI.Box(new Rect(Mathf.Max(8f, Screen.width - 224f), 8f, 216f, 116f),
                     $"DEV INSPECTOR\nGrid: {hoverHighlight.HoveredCell}\nTool: " +
-                    (demolishToolActive ? "Demolish" : isPlacementModeActive ?
-                        GetSelectedOption()?.Definition?.Id : "None") +
-                    $"\n{GetHoveredMachineDebug()}");
+                    (isPlacementModeActive ?
+                        GetSelectedOption()?.Definition?.Id : "None"));
+            if (!systemMenuOpen)
+            {
+                GUI.enabled = previousEnabled && !BlocksAllWorldInput;
+                DrawCropPicker();
+            }
             GUI.enabled = previousEnabled;
         }
 
@@ -1997,14 +2313,6 @@ namespace FantasyShapez.Buildings
                 GUI.enabled = enabled;
                 if (locked) GUILayout.Label($"Requires {GetMachineUnlockRequirement(option)}");
             }
-            if (constructionCategory == 1 && GUILayout.Button("Demolish"))
-            {
-                ClosePanel();
-                if (isGroupPasteModeActive) ExitGroupPasteMode();
-                propertySupply?.ExitTool();
-                isPlacementModeActive = false;
-                demolishToolActive = true;
-            }
             if (constructionCategory == 3 && GUILayout.Button("Property connections"))
                 OpenPanel(DemoPanel.Property);
             GUILayout.EndScrollView();
@@ -2020,7 +2328,8 @@ namespace FantasyShapez.Buildings
             GUILayout.Label("Help");
             GUILayout.Label("Choose a building from the hotbar or Build Menu.");
             GUILayout.Label("R rotates. Esc or Right Click cancels the current tool.");
-            GUILayout.Label("Hold Right Click over a building to remove it; drag to remove several.");
+            GUILayout.Label("Right Click removes a building; hold and drag to remove more.");
+            GUILayout.Label("Shift drag selects; Ctrl+C copies, Ctrl+V pastes, Ctrl+X cuts.");
             GUILayout.Label("Click Market to view the current order.");
             GUILayout.EndArea();
         }
@@ -2066,25 +2375,121 @@ namespace FantasyShapez.Buildings
             Vector2Int anchor, BuildingRotation rotation)
         {
             BuildingDefinition definition = option.Definition;
-            if (definition.Id == nameof(FarmPlot))
+            if (foodDemoControls && definition.Id == nameof(FarmPlot))
             {
                 FarmableRegion region = market?.Regions?.GetRegionAt(anchor);
-                if (region == null) return "Non-farmable land";
+                if (region == null) return "Place Farm Plots on farmable land.";
                 if (market.Regions.GetStatus(region.Id) != RegionStatus.Restored)
-                    return "Locked region";
+                    return "Restore this region before placing a Farm Plot.";
             }
             if (option.PlacementBehavior is HarvesterPlacementBehavior)
             {
                 if (!TryGetHarvesterFarmPlacement(option, anchor, rotation,
                         out Vector2Int farmCell, out BuildingPlacement farmPlacement))
-                    return "Harvester needs a Farm Plot";
+                    return "Place a Farm Plot under the Harvester.";
                 return occupancy.CanPlaceOver(anchor, definition.Footprint, rotation,
-                    farmCell, farmPlacement) ? "Placement unavailable" :
-                    "Harvester's free cell is occupied";
+                    farmCell, farmPlacement) ? "Check the Harvester setup." :
+                    "Clear the Harvester's output cell.";
             }
             if (!occupancy.CanPlace(definition, anchor, rotation))
-                return "Occupied cell";
-            return "Placement requirements not met";
+                return "Move the preview off another building.";
+            return "Check this building's required setup.";
+        }
+
+        private IReadOnlyList<bool?> GetPortConnectionFeedback(
+            BuildingPlacementOption option, BuildingRotation rotation)
+        {
+            var feedback = new bool?[option.PortPreviews.Count];
+            for (int index = 0; index < feedback.Length; index++)
+            {
+                BuildingPortPreview port = option.PortPreviews[index];
+                Vector2Int outward = port.ResolveDirection(rotation)
+                    .ToGridDirection().ToOffset();
+                Vector3 local = new(port.LocalPosition.x * gridSystem.CellSize,
+                    port.LocalPosition.y * gridSystem.CellSize, 0f);
+                Vector2Int outside = gridSystem.WorldToGrid(
+                    placementPreview.transform.TransformPoint(local) +
+                    (Vector3)(Vector2)outward * gridSystem.CellSize * 0.6f);
+                if (port.Kind == BuildingPortKind.PropertyInput)
+                {
+                    if (propertySupply?.HasPipeAt(outside) == true)
+                        feedback[index] = true;
+                    else if (occupancy.TryGetBuilding(outside, out _))
+                        feedback[index] = false;
+                    continue;
+                }
+                if (!occupancy.TryGetBuilding(outside,
+                        out BuildingPlacement neighbor)) continue;
+                if (neighbor.DefinitionId != nameof(Belt))
+                {
+                    feedback[index] = HasMatchingNeighborPort(neighbor, port,
+                        local, outward);
+                    continue;
+                }
+                Vector2Int beltOutput = neighbor.Rotation.ToGridDirection().ToOffset();
+                feedback[index] = port.Kind == BuildingPortKind.Input
+                    ? beltOutput == -outward : beltOutput != -outward;
+            }
+            return feedback;
+        }
+
+        private bool HasMatchingNeighborPort(BuildingPlacement neighbor,
+            BuildingPortPreview currentPort, Vector3 currentLocal,
+            Vector2Int outward)
+        {
+            if (!buildingInstances.TryGetValue(neighbor, out PlacedBuilding instance))
+                return false;
+            BuildingPlacementOption option = buildingOptions.FirstOrDefault(candidate =>
+                candidate?.Definition?.Id == neighbor.DefinitionId);
+            if (option == null) return false;
+            Vector2Int inside = gridSystem.WorldToGrid(
+                placementPreview.transform.TransformPoint(currentLocal) -
+                (Vector3)(Vector2)outward * gridSystem.CellSize * 0.6f);
+            BuildingPortKind required = currentPort.Kind == BuildingPortKind.Input
+                ? BuildingPortKind.Output : BuildingPortKind.Input;
+            foreach (BuildingPortPreview port in option.PortPreviews)
+            {
+                if (port.Kind != required ||
+                    port.ResolveDirection(neighbor.Rotation).ToGridDirection().ToOffset()
+                    != -outward) continue;
+                Vector3 local = new(port.LocalPosition.x * gridSystem.CellSize,
+                    port.LocalPosition.y * gridSystem.CellSize, 0f);
+                Vector2Int outside = gridSystem.WorldToGrid(
+                    instance.transform.TransformPoint(local) +
+                    (Vector3)(Vector2)(-outward) * gridSystem.CellSize * 0.6f);
+                if (outside == inside) return true;
+            }
+            return false;
+        }
+
+        private bool? GetBeltConnectionFeedback(BuildingPlacementOption option,
+            Vector2Int cell, BuildingRotation rotation)
+        {
+            if (option.Definition.Id != nameof(Belt)) return null;
+            Vector2Int forward = rotation.ToGridDirection().ToOffset();
+            if (!occupancy.TryGetBuilding(cell + forward,
+                    out BuildingPlacement neighbor)) return null;
+            if (neighbor.DefinitionId == nameof(Belt))
+                return neighbor.Rotation.ToGridDirection().ToOffset() != -forward;
+            if (neighbor.DefinitionId == nameof(Hub)) return true;
+            if (!buildingInstances.TryGetValue(neighbor, out PlacedBuilding instance))
+                return false;
+            BuildingPlacementOption target = buildingOptions.FirstOrDefault(candidate =>
+                candidate?.Definition?.Id == neighbor.DefinitionId);
+            if (target == null) return false;
+            foreach (BuildingPortPreview port in target.PortPreviews)
+            {
+                if (port.Kind != BuildingPortKind.Input ||
+                    port.ResolveDirection(neighbor.Rotation).ToGridDirection().ToOffset()
+                    != -forward) continue;
+                Vector3 local = new(port.LocalPosition.x * gridSystem.CellSize,
+                    port.LocalPosition.y * gridSystem.CellSize, 0f);
+                Vector2Int outside = gridSystem.WorldToGrid(
+                    instance.transform.TransformPoint(local) -
+                    (Vector3)(Vector2)forward * gridSystem.CellSize * 0.6f);
+                if (outside == cell) return true;
+            }
+            return false;
         }
 
         private bool IsMachineLocked(BuildingPlacementOption option) =>
@@ -2177,6 +2582,17 @@ namespace FantasyShapez.Buildings
             return true;
         }
 
+        private bool CanRemovePlacement(BuildingPlacement placement)
+        {
+            if (buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
+                return CanRemove(instance.gameObject);
+            return foodDemoControls &&
+                propertySupply?.TryGetClipboardConnection(placement,
+                    out PropertyConnection connection) == true &&
+                connection.Kind is PropertyConnectionKind.Collector or
+                    PropertyConnectionKind.Pipe;
+        }
+
         private void OnValidate()
         {
             if (buildingOptions == null)
@@ -2205,7 +2621,8 @@ namespace FantasyShapez.Buildings
             GridOccupancy occupancy,
             Vector2Int firstCell,
             Vector2Int lastCell,
-            Func<BuildingPlacement, bool> canSelect)
+            Func<BuildingPlacement, bool> canSelect,
+            bool includeUnderlying = false)
         {
             if (occupancy == null)
             {
@@ -2233,6 +2650,13 @@ namespace FantasyShapez.Buildings
                         selectedSet.Add(placement);
                         selectedPlacements.Add(placement);
                     }
+                    if (includeUnderlying && occupancy.TryGetUnderlyingBuilding(
+                            new Vector2Int(x, y), out BuildingPlacement underlying) &&
+                        !selectedSet.Contains(underlying) && canSelect(underlying))
+                    {
+                        selectedSet.Add(underlying);
+                        selectedPlacements.Add(underlying);
+                    }
                 }
             }
         }
@@ -2256,13 +2680,15 @@ namespace FantasyShapez.Buildings
             Vector2Int cell,
             BuildingRotation rotation,
             Engraver.RecipeConfiguration? engraverRecipe = null,
-            ElementInfuser.RecipeConfiguration? infuserRecipe = null)
+            ElementInfuser.RecipeConfiguration? infuserRecipe = null,
+            string cropId = null)
         {
             Option = option ?? throw new ArgumentNullException(nameof(option));
             Offset = cell;
             Rotation = rotation;
             EngraverRecipe = engraverRecipe;
             InfuserRecipe = infuserRecipe;
+            CropId = cropId;
         }
 
         public BuildingPlacementOption Option { get; }
@@ -2270,15 +2696,31 @@ namespace FantasyShapez.Buildings
         public BuildingRotation Rotation { get; }
         public Engraver.RecipeConfiguration? EngraverRecipe { get; }
         public ElementInfuser.RecipeConfiguration? InfuserRecipe { get; }
+        public string CropId { get; }
+    }
+
+    public readonly struct PropertyGroupCopyItem
+    {
+        public PropertyGroupCopyItem(PropertyConnection connection, Vector2Int offset)
+        {
+            Connection = connection;
+            Offset = offset;
+        }
+
+        public PropertyConnection Connection { get; }
+        public Vector2Int Offset { get; }
     }
 
     public sealed class BuildingGroupCopy
     {
         private readonly BuildingGroupCopyItem[] items;
+        private readonly PropertyGroupCopyItem[] propertyItems;
 
-        public BuildingGroupCopy(IReadOnlyList<BuildingGroupCopyItem> sourceItems)
+        public BuildingGroupCopy(IReadOnlyList<BuildingGroupCopyItem> sourceItems,
+            IReadOnlyList<PropertyConnection> sourceConnections = null)
         {
-            if (sourceItems == null || sourceItems.Count == 0)
+            if (sourceItems == null || sourceItems.Count == 0 &&
+                (sourceConnections == null || sourceConnections.Count == 0))
             {
                 throw new ArgumentException("A group requires at least one building.",
                     nameof(sourceItems));
@@ -2291,6 +2733,12 @@ namespace FantasyShapez.Buildings
                 minX = Math.Min(minX, item.Offset.x);
                 minY = Math.Min(minY, item.Offset.y);
             }
+            if (sourceConnections != null)
+                foreach (PropertyConnection connection in sourceConnections)
+                {
+                    minX = Math.Min(minX, connection.Cell.x);
+                    minY = Math.Min(minY, connection.Cell.y);
+                }
 
             Vector2Int origin = new(minX, minY);
             items = new BuildingGroupCopyItem[sourceItems.Count];
@@ -2302,11 +2750,24 @@ namespace FantasyShapez.Buildings
                     source.Offset - origin,
                     source.Rotation,
                     source.EngraverRecipe,
-                    source.InfuserRecipe);
+                    source.InfuserRecipe,
+                    source.CropId);
             }
+            propertyItems = sourceConnections == null
+                ? Array.Empty<PropertyGroupCopyItem>()
+                : sourceConnections.Select(connection =>
+                    new PropertyGroupCopyItem(connection, connection.Cell - origin)).ToArray();
         }
 
         public IReadOnlyList<BuildingGroupCopyItem> Items => items;
+        public IReadOnlyList<PropertyGroupCopyItem> PropertyItems => propertyItems;
+
+        private BuildingGroupCopy(BuildingGroupCopyItem[] items,
+            PropertyGroupCopyItem[] propertyItems)
+        {
+            this.items = items;
+            this.propertyItems = propertyItems;
+        }
 
         public BuildingGroupCopy RotateClockwise()
         {
@@ -2317,6 +2778,8 @@ namespace FantasyShapez.Buildings
                     item.Option.Definition.Footprint);
                 groupWidth = Math.Max(groupWidth, item.Offset.x + footprint.x);
             }
+            foreach (PropertyGroupCopyItem item in propertyItems)
+                groupWidth = Math.Max(groupWidth, item.Offset.x + 1);
 
             var rotatedItems = new BuildingGroupCopyItem[items.Length];
             for (int index = 0; index < items.Length; index++)
@@ -2331,10 +2794,14 @@ namespace FantasyShapez.Buildings
                     rotatedOffset,
                     item.Rotation.RotateClockwise(),
                     item.EngraverRecipe,
-                    item.InfuserRecipe);
+                    item.InfuserRecipe,
+                    item.CropId);
             }
-
-            return new BuildingGroupCopy(rotatedItems);
+            var rotatedProperties = propertyItems.Select(item =>
+                new PropertyGroupCopyItem(item.Connection,
+                    new Vector2Int(item.Offset.y, groupWidth - item.Offset.x - 1)))
+                .ToArray();
+            return new BuildingGroupCopy(rotatedItems, rotatedProperties);
         }
 
         public bool TryMirrorHorizontal(out BuildingGroupCopy mirrored)
@@ -2370,6 +2837,9 @@ namespace FantasyShapez.Buildings
                     return false;
                 }
             }
+            foreach (PropertyGroupCopyItem item in propertyItems)
+                groupExtent = Math.Max(groupExtent,
+                    (horizontal ? item.Offset.x : item.Offset.y) + 1);
 
             var mirroredItems = new BuildingGroupCopyItem[items.Length];
             for (int index = 0; index < items.Length; index++)
@@ -2386,10 +2856,16 @@ namespace FantasyShapez.Buildings
                     mirroredOffset,
                     MirrorDirection(item.Rotation, horizontal),
                     item.EngraverRecipe,
-                    item.InfuserRecipe);
+                    item.InfuserRecipe,
+                    item.CropId);
             }
-
-            mirrored = new BuildingGroupCopy(mirroredItems);
+            var mirroredProperties = propertyItems.Select(item =>
+                new PropertyGroupCopyItem(item.Connection,
+                    horizontal
+                        ? new Vector2Int(groupExtent - item.Offset.x - 1, item.Offset.y)
+                        : new Vector2Int(item.Offset.x, groupExtent - item.Offset.y - 1)))
+                .ToArray();
+            mirrored = new BuildingGroupCopy(mirroredItems, mirroredProperties);
             return true;
         }
 
