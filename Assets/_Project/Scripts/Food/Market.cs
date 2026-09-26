@@ -40,6 +40,7 @@ namespace FantasyShapez.Food
         public FoodOrderSequence OrderSequence => orderSequence;
 
         public string LastDeliveryMessage => lastDeliveryDebug;
+        public event Action<FoodItemData, int> FoodDelivered;
 
         private void Awake()
         {
@@ -62,6 +63,7 @@ namespace FantasyShapez.Food
             string kind = food.Kind == FoodItemKind.RawIngredient ? "raw" : "processed";
             lastDeliveryDebug =
                 $"Delivered {food.Id} ({kind}): {count} (+{food.SellValue} currency)";
+            FoodDelivered?.Invoke(food, count);
         }
 
         private void OnDestroy()

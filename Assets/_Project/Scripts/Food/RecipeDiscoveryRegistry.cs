@@ -6,7 +6,8 @@ namespace FantasyShapez.Food
     public enum DiscoveredRecipeKind
     {
         Processing,
-        Mixing
+        Mixing,
+        Cutting
     }
 
     public sealed class DiscoveredRecipe : IEquatable<DiscoveredRecipe>
@@ -38,6 +39,16 @@ namespace FantasyShapez.Food
             Output = recipe.Output;
         }
 
+        public DiscoveredRecipe(CuttingRecipe recipe)
+        {
+            if (recipe?.Input == null || recipe.Output == null)
+                throw new ArgumentException("A complete cutting recipe is required.",
+                    nameof(recipe));
+            Kind = DiscoveredRecipeKind.Cutting;
+            IngredientA = recipe.Input;
+            Output = recipe.Output;
+        }
+
         public DiscoveredRecipeKind Kind { get; }
         public FoodItemData IngredientA { get; }
         public FoodItemData IngredientB { get; }
@@ -51,7 +62,9 @@ namespace FantasyShapez.Food
                 return false;
             }
 
-            return Kind == DiscoveredRecipeKind.Processing
+            return Kind == DiscoveredRecipeKind.Cutting
+                ? IngredientA.Equals(other.IngredientA)
+                : Kind == DiscoveredRecipeKind.Processing
                 ? IngredientA.Equals(other.IngredientA) && Property == other.Property
                 : (IngredientA.Equals(other.IngredientA) &&
                    IngredientB.Equals(other.IngredientB)) ||
@@ -61,7 +74,9 @@ namespace FantasyShapez.Food
 
         public override bool Equals(object obj) => obj is DiscoveredRecipe other && Equals(other);
 
-        public override int GetHashCode() => Kind == DiscoveredRecipeKind.Processing
+        public override int GetHashCode() => Kind == DiscoveredRecipeKind.Cutting
+            ? HashCode.Combine(Kind, IngredientA, Output)
+            : Kind == DiscoveredRecipeKind.Processing
             ? HashCode.Combine(Kind, IngredientA, Property, Output)
             : HashCode.Combine(Kind, IngredientA.GetHashCode() ^ IngredientB.GetHashCode(), Output);
     }
@@ -82,6 +97,7 @@ namespace FantasyShapez.Food
 
         public bool Record(ProcessingRecipe recipe) => Record(new DiscoveredRecipe(recipe));
         public bool Record(MixingRecipe recipe) => Record(new DiscoveredRecipe(recipe));
+        public bool Record(CuttingRecipe recipe) => Record(new DiscoveredRecipe(recipe));
 
         public void Restore(IReadOnlyList<DiscoveredRecipe> recipes)
         {

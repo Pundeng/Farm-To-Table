@@ -11,6 +11,7 @@ namespace FantasyShapez.Food
         public const string SeedShopCategory = "seed_shop";
         public const string RegionCategory = "region";
         public const string RegionAccessCategory = "region_access";
+        public const string MachineCategory = "machine";
 
         [SerializeField] private string category;
         [SerializeField] private string id;
@@ -111,7 +112,8 @@ namespace FantasyShapez.Food
     public sealed class FoodOrderRequirement
     {
         [SerializeField] private FoodItemData food;
-        [SerializeField, Min(1)] private int quantity = 1;
+        [SerializeField, Min(1), Tooltip("Editable delivery objective for this order.")]
+        private int quantity = 1;
 
         public FoodOrderRequirement(FoodItemData food, int quantity)
         {

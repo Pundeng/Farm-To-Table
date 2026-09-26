@@ -124,6 +124,64 @@ namespace FantasyShapez.Tests.EditMode
 
     public sealed class FarmableRegionTests
     {
+        [Test]
+        public void Purchases_RequireCardinalAdjacencyProgressionAndFunds()
+        {
+            var unlocks = new UnlockState();
+            var inventory = new MarketInventory();
+            var regions = new RegionState(new[]
+            {
+                new FarmableRegion("start", "Start", Vector2Int.zero,
+                    new Vector2Int(2, 2), true),
+                new FarmableRegion("east", "East", new Vector2Int(2, 0),
+                    new Vector2Int(2, 2), false,
+                    new UnlockKey(UnlockKey.RegionAccessCategory, "east"),
+                    new[] { new UnlockKey(UnlockKey.CropCategory, "Potato") }, 2),
+                new FarmableRegion("diagonal", "Diagonal", new Vector2Int(2, 2),
+                    Vector2Int.one, false, price: 1)
+            }, unlocks);
+
+            Assert.That(regions.GetPurchaseStatus("east", 99),
+                Is.EqualTo(RegionPurchaseStatus.ProgressionLocked));
+            Assert.That(regions.TryPurchase("east", inventory), Is.False);
+            unlocks.Grant(new UnlockKey(UnlockKey.RegionAccessCategory, "east"));
+            Assert.That(regions.GetPurchaseStatus("east", 99),
+                Is.EqualTo(RegionPurchaseStatus.Available));
+            Assert.That(regions.GetPurchaseStatus("diagonal", 99),
+                Is.EqualTo(RegionPurchaseStatus.NotAdjacent));
+            Assert.That(regions.TryPurchase("diagonal", inventory), Is.False);
+            Assert.That(regions.GetPurchaseStatus("east", 0),
+                Is.EqualTo(RegionPurchaseStatus.Unaffordable));
+            inventory.RecordDelivery(new FoodItemData("apple",
+                FoodItemKind.RawIngredient, 2));
+            Assert.That(regions.TryPurchase("east", inventory), Is.True);
+            Assert.That(regions.TryPurchase("east", inventory), Is.False);
+            Assert.That(inventory.Currency, Is.Zero);
+            Assert.That(regions.CanFarm(new Vector2Int(2, 0)), Is.True);
+            Assert.That(unlocks.IsUnlocked(UnlockKey.CropCategory, "Potato"), Is.True);
+            Assert.That(regions.GetPurchaseStatus("diagonal", 1),
+                Is.EqualTo(RegionPurchaseStatus.Available));
+        }
+
+        [Test]
+        public void RegionMapClick_DoesNotConsumePlacementOrOccupiedRestoredCells()
+        {
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Locked,
+                true, false), Is.True);
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Restorable,
+                true, false), Is.True);
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Locked,
+                false, true), Is.False);
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Restored,
+                true, false), Is.False);
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Restored,
+                false, true), Is.False);
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Restored,
+                false, false), Is.False);
+            Assert.That(MarketPanel.ShouldConsumeRegionClick(RegionStatus.Restored,
+                false, false, true), Is.True);
+        }
+
         private static RegionState CreateRegions(UnlockState unlocks)
         {
             return new RegionState(new[]

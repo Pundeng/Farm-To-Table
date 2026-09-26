@@ -62,6 +62,8 @@ namespace FantasyShapez.Food
         private readonly RecipeDiscoveryRegistry discoveries;
         private readonly IReadOnlyList<ProcessingRecipe> processorRecipes;
         private readonly IReadOnlyList<MixingRecipe> mixerRecipes;
+        private IReadOnlyList<CuttingRecipe> cutterRecipes = Array.Empty<CuttingRecipe>();
+        private bool isDemo;
         private readonly Func<FactoryWorldData> captureWorld;
         private readonly Action<FactoryWorldData, IReadOnlyList<SavedUnlock>> validateWorld;
 
@@ -77,6 +79,8 @@ namespace FantasyShapez.Food
 
             captureWorld = buildings.CaptureWorldSnapshot;
             validateWorld = buildings.ValidateWorldSnapshot;
+            cutterRecipes = buildings.CutterRecipes;
+            isDemo = buildings.IsFoodDemo;
         }
 
         public ProgressionSaveService(MarketInventory inventory, FoodOrderSequence orders,
@@ -104,6 +108,9 @@ namespace FantasyShapez.Food
         public static string DefaultPath =>
             Path.Combine(Application.persistentDataPath, "cozy-food-factory-progress.json");
 
+        public static string DemoPath =>
+            Path.Combine(Application.persistentDataPath, "cozy-food-factory-demo.json");
+
         public string ToJson() => JsonUtility.ToJson(Capture(), true);
 
         public bool TryLoadJson(string json, out string error)
@@ -112,6 +119,7 @@ namespace FantasyShapez.Food
             try
             {
                 data = JsonUtility.FromJson<ProgressionSaveData>(json);
+                MigrateLegacyDemo(data);
                 if (data?.version == 2)
                 {
                     FactoryWorldSnapshotValidator.RestoreSerializedNulls(data.world);
@@ -212,6 +220,7 @@ namespace FantasyShapez.Food
                 }
 
                 data = JsonUtility.FromJson<ProgressionSaveData>(File.ReadAllText(path));
+                MigrateLegacyDemo(data);
                 if (data?.version == 2)
                 {
                     FactoryWorldSnapshotValidator.RestoreSerializedNulls(data.world);
@@ -238,6 +247,52 @@ namespace FantasyShapez.Food
                 validateWorld(data.world, data.unlocks);
             }
             ApplyValidated(data);
+        }
+
+        private void MigrateLegacyDemo(ProgressionSaveData data)
+        {
+            if (!isDemo || orders.Orders.Count < 2 || data == null ||
+                data.completedOrderIds == null || data.unlocks == null)
+                return;
+
+            bool legacyOrderPosition = data.completedOrderIds.Length == 0 &&
+                    data.activeOrderId == "First Harvest" ||
+                data.completedOrderIds.Length == 1 &&
+                    data.completedOrderIds[0] == "First Harvest" &&
+                    string.IsNullOrEmpty(data.activeOrderId);
+            if (!legacyOrderPosition) return;
+
+            var keys = data.unlocks.ToList();
+            if (data.world?.buildings?.Any(building =>
+                    building?.farmPlot?.cropId == "Tomato") == true)
+                AddIfMissing(keys, UnlockKey.CropCategory, "Tomato");
+            data.unlocks = keys.ToArray();
+
+            // Milestone 01 had one order. Preserve its completed state and existing
+            // factory while opening the new second order in memory. The file is
+            // rewritten only by an explicit successful Save.
+            bool completedOldOrder = data.completedOrderIds.Length == 1 &&
+                data.completedOrderIds[0] == "First Harvest" &&
+                string.IsNullOrEmpty(data.activeOrderId) &&
+                data.activeProgress?.Length == 0;
+            if (!completedOldOrder) return;
+
+            AddIfMissing(keys, UnlockKey.MachineCategory, nameof(Processor));
+            if (keys.Any(key => key?.category == UnlockKey.RegionCategory &&
+                    key.id == "East Field"))
+                AddIfMissing(keys, UnlockKey.CropCategory, "Potato");
+            data.unlocks = keys.ToArray();
+            data.activeOrderId = orders.Orders[1].Id;
+            data.activeProgress = orders.Orders[1].Requirements.Select(requirement =>
+                new SavedDelivery { id = requirement.Food.Id,
+                    kind = requirement.Food.Kind, count = 0 }).ToArray();
+        }
+
+        private static void AddIfMissing(List<SavedUnlock> keys,
+            string category, string id)
+        {
+            if (!keys.Any(key => key?.category == category && key.id == id))
+                keys.Add(new SavedUnlock { category = category, id = id });
         }
 
         private ProgressionSaveData Capture()
@@ -400,7 +455,10 @@ namespace FantasyShapez.Food
                 if (region.InitiallyRestored && !uniqueUnlocks.Contains(restored) ||
                     uniqueUnlocks.Contains(restored) && region.HasRequirement &&
                     !uniqueUnlocks.Contains(new UnlockKey(region.RequiredUnlockCategory,
-                        region.RequiredUnlockId)))
+                        region.RequiredUnlockId)) ||
+                    uniqueUnlocks.Contains(restored) &&
+                    region.RestorationUnlocks.Any(reward =>
+                        !uniqueUnlocks.Contains(reward)))
                 {
                     throw new ArgumentException("Invalid saved region state.");
                 }
@@ -468,6 +526,16 @@ namespace FantasyShapez.Food
                      recipe.IngredientA.Kind == saved.ingredientBKind &&
                      recipe.IngredientB?.Id == saved.ingredientAId &&
                      recipe.IngredientB.Kind == saved.ingredientAKind));
+                return match == null ? null : new DiscoveredRecipe(match);
+            }
+
+            if (saved.kind == DiscoveredRecipeKind.Cutting)
+            {
+                CuttingRecipe match = cutterRecipes.FirstOrDefault(recipe =>
+                    recipe.Input?.Id == saved.ingredientAId &&
+                    recipe.Input.Kind == saved.ingredientAKind &&
+                    recipe.Output?.Id == saved.outputId &&
+                    recipe.Output.Kind == saved.outputKind);
                 return match == null ? null : new DiscoveredRecipe(match);
             }
 

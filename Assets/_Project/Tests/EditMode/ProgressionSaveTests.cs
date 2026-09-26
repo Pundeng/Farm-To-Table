@@ -57,7 +57,8 @@ namespace FantasyShapez.Tests.EditMode
                         Vector2Int.one, true),
                     new FarmableRegion("East", "East", Vector2Int.right,
                         Vector2Int.one, false,
-                        new UnlockKey(UnlockKey.RegionAccessCategory, "East"))
+                        new UnlockKey(UnlockKey.RegionAccessCategory, "East"),
+                        price: 1)
                 }, Unlocks);
                 Recipe = new ProcessingRecipe(Apple, CookingProperty.Air, DriedApple);
                 Saves = new ProgressionSaveService(Inventory, Orders, Unlocks, Shop, Regions,
@@ -65,6 +66,26 @@ namespace FantasyShapez.Tests.EditMode
             }
 
             public void Dispose() => Orders.Dispose();
+        }
+
+        [Test]
+        public void PurchasedRegion_RoundTripPreservesRemainingCurrencyAndFarmability()
+        {
+            using var source = new Session();
+            source.Receiver.TryAcceptItem(source.Apple, GridDirection.East);
+            source.Receiver.TryAcceptItem(source.Apple, GridDirection.East);
+            Assert.That(source.Regions.TryPurchase("East", source.Inventory), Is.True);
+            Assert.That(source.Inventory.Currency, Is.EqualTo(1));
+
+            string json = source.Saves.ToJson();
+            using var destination = new Session();
+            Assert.That(destination.Saves.TryLoadJson(json, out string error),
+                Is.True, error);
+            Assert.That(destination.Inventory.Currency, Is.EqualTo(1));
+            Assert.That(destination.Regions.CanFarm(Vector2Int.right), Is.True);
+            Assert.That(destination.Regions.TryPurchase("East", destination.Inventory),
+                Is.False);
+            Assert.That(destination.Inventory.Currency, Is.EqualTo(1));
         }
 
         [Test]
@@ -368,6 +389,10 @@ namespace FantasyShapez.Tests.EditMode
                     world, options, Array.Empty<PropertySourceSetup>(), regions, keys,
                     Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
                     new Vector2Int(10, 4), new Vector2Int(10, 1)));
+                Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.ValidateAgainstScene(
+                    world, options, Array.Empty<PropertySourceSetup>(), regions, keys,
+                    Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
+                    new Vector2Int(10, 4), null));
 
                 world.buildings = new[]
                 {

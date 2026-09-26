@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using FantasyShapez.Buildings;
 using FantasyShapez.Logistics;
+using FantasyShapez.Food;
 using FantasyShapez.Production;
 using FantasyShapez.Runes;
 using NUnit.Framework;
@@ -12,6 +13,40 @@ namespace FantasyShapez.Tests.EditMode
 {
     public sealed class GridOccupancyTests
     {
+        [Test]
+        public void RectangleSelection_IncludesFarmPlotBelowHarvesterOverlay()
+        {
+            var occupancy = new GridOccupancy();
+            Assert.That(occupancy.TryRegister(nameof(FarmPlot), Vector2Int.zero,
+                Vector2Int.one, BuildingRotation.Degrees0,
+                out BuildingPlacement plot), Is.True);
+            Assert.That(occupancy.TryRegisterOver(nameof(Harvester), Vector2Int.zero,
+                new Vector2Int(1, 2), BuildingRotation.Degrees0,
+                Vector2Int.zero, plot, out BuildingPlacement harvester), Is.True);
+            var selection = new BuildingSelection();
+            selection.SelectRectangle(occupancy, Vector2Int.zero, Vector2Int.zero,
+                _ => true, includeUnderlying: true);
+            CollectionAssert.AreEquivalent(new[] { plot, harvester },
+                selection.SelectedPlacements);
+        }
+
+        [Test]
+        public void PropertyClipboard_RotationKeepsCropAndRelativeCell()
+        {
+            var option = new BuildingPlacementOption();
+            var connection = new PropertyConnection(new Vector2Int(3, 1),
+                Vector2Int.zero, CookingProperty.Heat,
+                PropertyConnectionKind.Pipe);
+            var group = new BuildingGroupCopy(new[]
+            {
+                new BuildingGroupCopyItem(option, new Vector2Int(1, 1),
+                    BuildingRotation.Degrees0, cropId: "Apple")
+            }, new[] { connection });
+            BuildingGroupCopy rotated = group.RotateClockwise();
+            Assert.That(rotated.Items[0].CropId, Is.EqualTo("Apple"));
+            Assert.That(rotated.PropertyItems[0].Offset - rotated.Items[0].Offset,
+                Is.EqualTo(new Vector2Int(0, -2)));
+        }
         [Test]
         public void GroupMove_AllowsOverlapWithItsOwnSourceFootprints()
         {
@@ -879,6 +914,113 @@ namespace FantasyShapez.Tests.EditMode
             Assert.That(placement.OccupiedCells, Does.Contain(new Vector2Int(-2, -3)));
             Assert.That(placement.OccupiedCells, Does.Contain(new Vector2Int(-1, -3)));
             Assert.That(occupancy.CanPlace(new Vector2Int(-1, -3), Vector2Int.one, BuildingRotation.Degrees0), Is.False);
+        }
+    }
+
+    public sealed class BuildingToolRotationMemoryTests
+    {
+        [Test]
+        public void SwitchingTools_RestoresEachToolsLastRotation()
+        {
+            var memory = new BuildingToolRotationMemory();
+            Assert.That(memory.Get(nameof(FantasyShapez.Food.Processor)),
+                Is.EqualTo(BuildingRotation.Degrees0));
+            memory.Set(nameof(FantasyShapez.Food.Processor),
+                BuildingRotation.Degrees90);
+            memory.Set(nameof(FantasyShapez.Food.BasicMixer),
+                BuildingRotation.Degrees270);
+            Assert.That(memory.Get(nameof(FantasyShapez.Food.Processor)),
+                Is.EqualTo(BuildingRotation.Degrees90));
+            Assert.That(memory.Get(nameof(FantasyShapez.Food.BasicMixer)),
+                Is.EqualTo(BuildingRotation.Degrees270));
+        }
+    }
+
+    public sealed class MachineFeedbackTests
+    {
+        [Test]
+        public void Processor_ResolvesOutputBeforeRecipePropertyAndInput()
+        {
+            MachineFeedback feedback = MachineFeedbackResolver.Processor(
+                true, true, true, true);
+            Assert.That(feedback.State, Is.EqualTo(MachineFeedbackState.OutputBlocked));
+            Assert.That(feedback.Ports, Is.EqualTo(MachineFeedbackPort.OutputA));
+            Assert.That(MachineFeedbackResolver.Processor(false, true, true, true).State,
+                Is.EqualTo(MachineFeedbackState.InvalidRecipe));
+            Assert.That(MachineFeedbackResolver.Processor(false, false, true, true).State,
+                Is.EqualTo(MachineFeedbackState.NeedsProperty));
+            Assert.That(MachineFeedbackResolver.Processor(false, false, false, false).HasProblem,
+                Is.False);
+        }
+
+        [Test]
+        public void Mixer_TargetsMissingBAndCombinationSeparately()
+        {
+            MachineFeedback missing = MachineFeedbackResolver.Mixer(false, false,
+                false, true);
+            Assert.That(missing.Ports, Is.EqualTo(MachineFeedbackPort.InputB));
+            MachineFeedback invalid = MachineFeedbackResolver.Mixer(false, true,
+                false, true);
+            Assert.That(invalid.Ports, Is.EqualTo(MachineFeedbackPort.Combination));
+        }
+
+        [Test]
+        public void Cutter_TargetsBlockedOutputsIndividuallyOrTogether()
+        {
+            Assert.That(MachineFeedbackResolver.Cutter(false, true, false, false).Ports,
+                Is.EqualTo(MachineFeedbackPort.OutputB));
+            Assert.That(MachineFeedbackResolver.Cutter(true, true, false, false).Ports,
+                Is.EqualTo(MachineFeedbackPort.OutputA | MachineFeedbackPort.OutputB));
+        }
+
+        [Test]
+        public void Harvester_GrowingCropIsNotAProblem()
+        {
+            Assert.That(MachineFeedbackResolver.Harvester(false, false).HasProblem,
+                Is.False);
+            Assert.That(MachineFeedbackResolver.Harvester(false, true).Ports,
+                Is.EqualTo(MachineFeedbackPort.Crop));
+        }
+
+        [Test]
+        public void Toasts_DeduplicateActiveEventsAndAggregateCurrency()
+        {
+            var queue = new EventToastQueue();
+            Assert.That(queue.Enqueue("Order complete", 0f), Is.True);
+            Assert.That(queue.Enqueue("Order complete", 0.5f), Is.False);
+            queue.AddCurrency(2, 0.5f);
+            queue.AddCurrency(3, 0.8f);
+            Assert.That(queue.Active.Single(entry => entry.Text.EndsWith("coins")).Text,
+                Is.EqualTo("+5 coins"));
+            queue.Prune(4f);
+            Assert.That(queue.Active, Is.Empty);
+            queue.Enqueue("One", 4f);
+            queue.Enqueue("Two", 4f);
+            queue.Enqueue("Three", 4f);
+            queue.Enqueue("Four", 4f);
+            Assert.That(queue.Active.Count, Is.EqualTo(3));
+            queue.Prune(8f);
+            Assert.That(queue.Active.Single().Text, Is.EqualTo("Four"));
+        }
+    }
+
+    public sealed class DemoEscapePriorityTests
+    {
+        [Test]
+        public void Escape_UsesOnePriorityAcrossModalPanelToolAndSelection()
+        {
+            Assert.That(DemoEscapePriority.Choose(true, false, true, true, true),
+                Is.EqualTo(DemoEscapeAction.DismissModal));
+            Assert.That(DemoEscapePriority.Choose(false, true, true, true, true),
+                Is.EqualTo(DemoEscapeAction.CloseSystem));
+            Assert.That(DemoEscapePriority.Choose(false, false, true, true, true),
+                Is.EqualTo(DemoEscapeAction.ClosePanel));
+            Assert.That(DemoEscapePriority.Choose(false, false, false, true, true),
+                Is.EqualTo(DemoEscapeAction.CancelTool));
+            Assert.That(DemoEscapePriority.Choose(false, false, false, false, true),
+                Is.EqualTo(DemoEscapeAction.ClearSelection));
+            Assert.That(DemoEscapePriority.Choose(false, false, false, false, false),
+                Is.EqualTo(DemoEscapeAction.OpenSystem));
         }
     }
 

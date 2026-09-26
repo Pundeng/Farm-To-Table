@@ -32,10 +32,10 @@ namespace FantasyShapez.Food
         private BeltTransportCoordinator transportCoordinator;
         private IngredientPort inputA;
         private IngredientPort inputB;
-        private SpriteRenderer outputWarning;
         private bool inputARegistered;
         private bool inputBRegistered;
         private bool outputRegistered;
+        private float invalidRecipeUntil;
 
         public Vector2Int InputACell => inputA.InputCell;
         public Vector2Int InputBCell => inputB.InputCell;
@@ -45,6 +45,7 @@ namespace FantasyShapez.Food
         public FoodItemData SlotA => process?.InputA;
         public FoodItemData SlotB => process?.InputB;
         public bool HasOutput => process?.HasOutput ?? false;
+        public bool HasRecentInvalidRecipe => Time.time < invalidRecipeUntil;
         public string LastEvent { get; private set; } = "Waiting for ingredients.";
 
         public SavedMixer CaptureWorldState()
@@ -67,10 +68,6 @@ namespace FantasyShapez.Food
             process.Restore(saved.slotA?.ToFood(), saved.slotB?.ToFood(),
                 saved.output?.ToFood());
             LastEvent = "Mixer state restored.";
-            if (outputWarning != null)
-            {
-                outputWarning.enabled = HasOutput;
-            }
         }
 
         public void Initialize(BuildingPlacement placement,
@@ -100,7 +97,6 @@ namespace FantasyShapez.Food
             inputBRegistered = true;
             transportCoordinator.RegisterOutputSource(this);
             outputRegistered = true;
-            CreateOutputWarning();
         }
 
         public IItemInputReceiver InputAReceiver => inputA;
@@ -132,6 +128,8 @@ namespace FantasyShapez.Food
             if (!process.CanAccept(slot, food))
             {
                 LastEvent = $"No unique mixing recipe for {food.Id} in slot {(slot == 0 ? "A" : "B")}.";
+                if (!HasOutput && (slot == 0 ? SlotA : SlotB) == null)
+                    invalidRecipeUntil = Time.time + 1.5f;
                 return false;
             }
 
@@ -152,14 +150,6 @@ namespace FantasyShapez.Food
             return true;
         }
 
-        private void Update()
-        {
-            if (outputWarning != null)
-            {
-                outputWarning.enabled = HasOutput;
-            }
-        }
-
         private void OnDestroy()
         {
             if (inputARegistered)
@@ -178,17 +168,5 @@ namespace FantasyShapez.Food
             }
         }
 
-        private void CreateOutputWarning()
-        {
-            var marker = new GameObject("Blocked dish output");
-            marker.transform.SetParent(transform, false);
-            marker.transform.localPosition = new Vector3(1f, 0.5f, -0.04f);
-            marker.transform.localScale = new Vector3(0.3f, 0.3f, 1f);
-            outputWarning = marker.AddComponent<SpriteRenderer>();
-            outputWarning.sprite = BuildingVisualFactory.PlaceholderSprite;
-            outputWarning.color = Color.red;
-            outputWarning.sortingOrder = 20;
-            outputWarning.enabled = false;
-        }
     }
 }

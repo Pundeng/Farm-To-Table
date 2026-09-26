@@ -11,6 +11,7 @@ namespace FantasyShapez.Logistics
         private readonly Dictionary<Vector2Int, IItemInputReceiver> receiversByCell = new();
         private readonly List<BeltCell> orderedBelts = new();
         private readonly List<IItemOutputSource> outputSources = new();
+        private readonly List<IItemOutputPairSource> outputPairs = new();
         private readonly Dictionary<IRuneInputReceiver, IItemInputReceiver> runeReceivers = new();
         private readonly Dictionary<IRuneOutputSource, IItemOutputSource> runeSources = new();
 
@@ -141,6 +142,23 @@ namespace FantasyShapez.Logistics
             }
         }
 
+        public void RegisterOutputPair(IItemOutputPairSource source)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (!outputPairs.Contains(source)) outputPairs.Add(source);
+        }
+
+        public void UnregisterOutputPair(IItemOutputPairSource source) =>
+            outputPairs.Remove(source);
+
+        public bool CanAcceptOutputPair(Vector2Int cellA, Vector2Int cellB) =>
+            cellA != cellB &&
+            beltsByCell.TryGetValue(cellA, out BeltCell beltA) && beltA.CanAccept &&
+            beltsByCell.TryGetValue(cellB, out BeltCell beltB) && beltB.CanAccept;
+
+        public bool CanAcceptOutput(Vector2Int cell) =>
+            beltsByCell.TryGetValue(cell, out BeltCell belt) && belt.CanAccept;
+
         public void UnregisterOutputSource(IRuneOutputSource source)
         {
             if (source != null && runeSources.TryGetValue(source, out IItemOutputSource adapter))
@@ -170,6 +188,7 @@ namespace FantasyShapez.Logistics
 
             TransferReadyItems();
             TransferSourceOutputs();
+            TransferOutputPairs();
         }
 
         private void TransferReadyItems()
@@ -252,6 +271,31 @@ namespace FantasyShapez.Logistics
                     throw new InvalidOperationException(
                         "An item output source changed during a deterministic transfer.");
                 }
+            }
+        }
+
+        private void TransferOutputPairs()
+        {
+            foreach (IItemOutputPairSource source in outputPairs)
+            {
+                if (!source.HasOutputPair ||
+                    !CanAcceptOutputPair(source.OutputACell, source.OutputBCell))
+                    continue;
+
+                ITransportItem pendingA = source.PeekOutputA();
+                ITransportItem pendingB = source.PeekOutputB();
+                if (pendingA == null || pendingB == null ||
+                    !source.TryTakeOutputPair(out ITransportItem itemA,
+                        out ITransportItem itemB) ||
+                    !ReferenceEquals(pendingA, itemA) ||
+                    !ReferenceEquals(pendingB, itemB))
+                    throw new InvalidOperationException("A paired output changed during transfer.");
+
+                if (!beltsByCell[source.OutputACell].TryAccept(itemA,
+                        source.OutputADirection) ||
+                    !beltsByCell[source.OutputBCell].TryAccept(itemB,
+                        source.OutputBDirection))
+                    throw new InvalidOperationException("A paired output belt changed during transfer.");
             }
         }
 

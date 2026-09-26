@@ -15,6 +15,26 @@ namespace FantasyShapez.Tests.EditMode
             new("Dried Apple", FoodItemKind.ProcessedFood);
 
         [Test]
+        public void RestoringEastFieldGrantsPotatoExactlyOnce()
+        {
+            var unlocks = new UnlockState();
+            var east = new FarmableRegion("East Field", "East Field",
+                new Vector2Int(5, -4), new Vector2Int(4, 9), false,
+                new UnlockKey(UnlockKey.RegionAccessCategory, "East Field"),
+                new[] { new UnlockKey(UnlockKey.CropCategory, "Potato") });
+            var starter = new FarmableRegion("Starter", "Starter",
+                new Vector2Int(-5, -4), new Vector2Int(10, 9), true);
+            var regions = new RegionState(new[] { starter, east }, unlocks);
+            Assert.That(regions.TryRestore(east.Id), Is.False);
+            Assert.That(unlocks.IsUnlocked(UnlockKey.CropCategory, "Potato"), Is.False);
+            unlocks.Grant(new UnlockKey(UnlockKey.RegionAccessCategory, east.Id));
+            Assert.That(regions.TryRestore(east.Id), Is.True);
+            Assert.That(regions.TryRestore(east.Id), Is.False);
+            Assert.That(unlocks.IsUnlocked(UnlockKey.CropCategory, "Potato"), Is.True);
+            Assert.That(unlocks.Unlocked, Has.Count.EqualTo(4));
+        }
+
+        [Test]
         public void Sequence_AdvancesWithOnlyPostActivationDeliveries()
         {
             var receiver = new MarketReceiver(Vector2Int.zero, new MarketInventory());

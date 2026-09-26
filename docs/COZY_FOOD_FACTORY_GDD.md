@@ -2,13 +2,52 @@
 # Cozy Food Factory
 ## Game Design Document (GDD)
 
-**Version:** 0.2  
-**Date:** September 23, 2026  
-**Status:** Core Concept & Systems Defined  
+**Version:** 0.5
+**Date:** September 25, 2026
+**Status:** Core Concept & Systems Defined
+
 **Working Title:** Cozy Food Factory
 
 ---
 
+## Milestone 04 — Factory Building UX & Readability (demo rules)
+
+Selecting a normal building tool keeps it active after each successful placement. Failed placements also retain the tool and its rotation. R rotates the preview clockwise, and each building type remembers its last rotation when the player switches tools. Belt and Pipe tools support drag placement. Placing a Farm Plot immediately opens its crop picker, and the Farm Plot tool remembers the last crop selected. Esc or right-click cancels the active construction tool. In normal mode, right-click shows a red hover outline and removes removable buildings or Property connections; holding it draws a removal path. Ctrl+C copies a selected group, Ctrl+V previews a paste, and Ctrl+X stages a cut that removes its source only after a valid paste. Selecting a placed machine outside construction opens its configuration panel.
+
+Construction presents Farming, Logistics, Manufacturing, and Property groups while retaining number-key shortcuts. It shows the current building and rotation, and locked machines state their required Market-order unlock. Active UI panels consume pointer input before world placement or removal. Placement feedback identifies occupied cells and building-specific restrictions.
+
+Food inputs, food outputs, and property ports use distinct colors and shapes. The Mixer's A and B inputs and Cutter's A and B outputs have visible labels. Working and Idle machines need no persistent status badge. Actionable problems show one indicator, the affected port or combination area, and a short problem and action tooltip; Output Blocked takes priority over Invalid Recipe, Needs Property, and Needs Input. Event Toasts are reserved for progression, currency, and save events. Transported foods use distinct temporary colors and labels based on their food identity until final art exists.
+
+## Milestone 03 — Land Expansion & Farmable Readability (demo rules)
+
+The map shows restored farmable cells, locked future farmland, and ground that cannot host Farm Plots at all times. Farm Plot previews explain whether a cell is locked, non-farmable, or occupied. Only restored, designated farmable cells accept Farm Plots; other construction retains its current placement rules.
+
+Players select locked regions by clicking their map area. Restored regions can be inspected through the Market list or Alt-clicked on the map, leaving ordinary building interactions available. The selected region shows its name, cell bounds, price, required progression, and used/free Farm Plot capacity. A region may be bought only when it shares a cardinal edge with an already restored region, its progression requirement is met, and regular currency covers its price. Diagonal contact does not count. A successful purchase spends currency once, restores the region immediately, and activates its farmable cells. Failed or repeated purchases spend nothing. The selected region and map show progression-locked, unaffordable, available, and restored states. Restoration gives visible confirmation. Region selection and purchase clicks cannot place or remove buildings.
+
+The existing Vegetable Base order remains the prerequisite for East Field; restoring East Field still grants Potato once. The starting region is restored for free. The demo's additional surrounding rectangles and all region prices are **provisional authored content**, not finalized world layout or balance. Each authored rectangle currently designates every cell inside it as farmable; ground outside those rectangles is non-farmable. Region unlocks and remaining currency use the existing save data; Farm Plot usage and free-cell capacity are derived from restored buildings after loading.
+
+Final region geometry, pricing, progression for regions beyond East Field, and procedural distribution remain undecided.
+
+## Milestone 02 — From Farm to Food Factory (finalized demo slice)
+
+This section fixes the first-time demo path. Quantities, sell values, crop times, and Cutter cycle time below are provisional Inspector values, not final balance.
+
+The authored demo asks for 3 Apples, then 2 each of Dried Apples, Vegetable Base, Cut Potatoes, and French Fries. Existing sample foods sell for 1 currency; Cut Potato sells for 2 and French Fries for 3. Potato takes 2 seconds per crop and the Cutter takes 1 second per cycle in this prototype.
+
+| Stage | Player action | Unlock |
+| --- | --- | --- |
+| 1 | Deliver Apples | Processor and Onion |
+| 2 | Deliver Dried Apples (Apple + Air) | Basic Mixer and Tomato |
+| 3 | Deliver Vegetable Base (Tomato + Onion) | Cutter and East Field restoration access |
+| 4 | Restore East Field | Potato |
+| 5 | Deliver Cut Potatoes | Final manufacturing order |
+| 6 | Deliver French Fries (Cut Potato + Heat) | Demo Complete |
+
+The Basil Seed Shop remains optional. Each delivery order counts only food delivered after that order becomes active. Stage 4 is a restoration gate. The Cut Potato delivery order becomes active after Vegetable Base, but Potato remains locked until East Field is restored. Restoration grants Potato once, and the guidance panel presents restoration as the next step. An order's required quantities remain serialized and editable in the scene Inspector. Locked machines are visible but cannot be selected for placement; locked crops remain visible in Farm Plot configuration.
+
+The Cutter occupies a rotatable 1×2 footprint. At 0° its rear input is on local cell (0,0) from South; its front is (0,1), with outputs to West and East. Rotation moves all cells and ports together. One accepted ingredient yields two identical cut-result items according to a unique recipe. The initial recipe is Potato → 2 Cut Potatoes. Raw and processed foods may be authored as future Cutter inputs. The Cutter may buffer one valid ingredient while waiting for its outputs. Both output belts must be present and able to accept items before a cycle starts or advances. If either output becomes blocked, processing pauses; both completed products leave together when both outputs can accept them. The Cutter holds its input or completed output through save/load, with no cooking property input or byproduct.
+
+The existing Processor gains Cut Potato + Heat → French Fries. Discovery records the first completed Cutter or Processor recipe. The Market's last order completion is the saved Demo Complete state. Guidance at each stage explains the relevant construction, ports, property source, crop, and Market connection.
 # 1. Game Overview
 
 ## 1.1 High Concept

@@ -1,3 +1,4 @@
+using FantasyShapez.Buildings;
 using FantasyShapez.Food;
 using FantasyShapez.UI;
 using UnityEngine;
@@ -15,6 +16,7 @@ namespace FantasyShapez.CameraControl
         [SerializeField] private bool zoomTowardCursor = true;
         [SerializeField] private MarketPanel marketPanel = null;
         [SerializeField] private RecipeDiscoveryPanel recipeDiscoveryPanel = null;
+        [SerializeField] private BuildingPlacementController buildings = null;
 
         private Camera controlledCamera;
 
@@ -31,6 +33,7 @@ namespace FantasyShapez.CameraControl
 
         private void Update()
         {
+            if (buildings != null && buildings.BlocksAllWorldInput) return;
             HandleKeyboardMovement();
             HandleMiddleMousePan();
             HandleZoom();
@@ -75,7 +78,8 @@ namespace FantasyShapez.CameraControl
         {
             if (Mouse.current == null ||
                 (marketPanel != null && marketPanel.IsPointerOverPanel) ||
-                (recipeDiscoveryPanel != null && recipeDiscoveryPanel.BlocksWorldInput))
+                (recipeDiscoveryPanel != null && recipeDiscoveryPanel.BlocksWorldInput) ||
+                (buildings != null && buildings.IsPointerOverInterface))
             {
                 return;
             }

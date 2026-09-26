@@ -1,0 +1,437 @@
+
+# UX-02 Feedback — Implementation Handoff
+
+## Goal
+
+플레이어가 기계가 멈췄을 때 **“무슨 문제인지 → 어느 포트가 문제인지 → 무엇을 해야 하는지”를 짧은 시간 안에 이해**할 수 있게 한다.
+
+이번 milestone은 **월드 피드백 중심**으로 진행한다. 큰 Inspector나 상시 상태 패널을 추가하지 않는다.
+
+---
+
+## 1. Feedback 구조
+
+플레이어 피드백은 다음 3단계로 전달한다.
+
+```text
+Machine
+→ Problem indicator
+→ Problem port
+→ Actionable tooltip
+```
+
+멀리서는 `!`로 문제 존재를 인식하고, 가까이서는 포트 강조로 위치를 확인하며, Hover 시 해결 방법을 본다.
+
+---
+
+## 2. Player-facing States
+
+내부 machine state를 그대로 UI에 노출하지 않는다.
+
+사용할 상태:
+
+- `Working`
+- `Idle`
+- `Needs Input`
+- `Needs Property`
+- `Invalid Input / Invalid Recipe`
+- `Output Blocked`
+
+`WAITING`은 player-facing 상태에서 제거한다.
+
+`Working`과 `Idle`은 정상 상태이므로 기본적으로 별도 UI를 표시하지 않는다.
+
+---
+
+## 3. Problem Priority
+
+여러 문제가 동시에 존재할 경우 대표 indicator는 다음 순서로 선택한다.
+
+```text
+1. Output Blocked
+2. Invalid Input / Invalid Recipe
+3. Needs Property
+4. Needs Input
+```
+
+이미 진행 중인 생산을 막는 문제를 단순 공급 부족보다 우선한다.
+
+---
+
+## 4. World Indicator
+
+문제 발생 시:
+
+**`! + 해당 문제 포트 강조`를 동시에 사용한다.**
+
+예:
+
+```text
+    !
+[Processor]
+     ↑
+ highlighted port
+```
+
+기계 전체를 빨갛게 칠하지 않는다.
+
+### Severity
+
+**Needs Input / Needs Property**
+- Soft orange / warning 계열
+- 아직 생산을 시작하지 못하는 상태
+
+**Output Blocked / Invalid Recipe**
+- Red 계열
+- 실제 생산 흐름을 막는 문제
+
+색만으로 의미를 전달하지 않고 아이콘/위치와 함께 사용한다.
+
+---
+
+## 5. Port-specific Feedback
+
+문제는 가능한 한 실제 포트에 귀속한다.
+
+### Processor
+
+`Needs Input`
+→ Ingredient input 강조
+
+`Needs Property`
+→ Property input 강조
+
+예:
+
+```text
+No Heat supply
+Connect a Heat pipe.
+```
+
+`Output Blocked`
+→ Product output 강조
+
+```text
+Output blocked
+Clear the connected belt.
+```
+
+---
+
+### Mixer
+
+각 입력은 A/B로 독립적으로 취급.
+
+```text
+Input A ✓
+Input B !
+```
+
+`Needs Input`
+→ 비어 있는 A 또는 B 포트 강조
+
+```text
+Missing ingredient B
+Connect the second ingredient belt.
+```
+
+`Invalid Recipe`
+→ 입력 하나를 임의로 문제라고 표시하지 말고 **Mixer 중앙 조합 영역**을 red/problem state로 표현.
+
+```text
+No valid recipe
+Change one of the ingredients.
+```
+
+---
+
+### Cutter
+
+Cutter는 두 Output이 모두 사용 가능해야 작동한다.
+
+```text
+       Output A ✓
+           ↑
+Input → Cutter
+           ↓
+       Output B ✕
+```
+
+한쪽이 막혔다면 해당 output만 강조.
+
+```text
+Output B blocked
+Both outputs must be available.
+```
+
+양쪽이 막혔다면 두 output 모두 강조하되 대표 `!`는 하나만 표시한다.
+
+---
+
+### Harvester
+
+성장 중인 작물은 오류가 아니다.
+
+경고 대상은 주로:
+
+- Crop 미설정
+- Output blocked
+
+Crop 미설정은 Farm Plot/Harvester의 crop 관련 위치에 warning 표시.
+
+Output blocked는 Harvester output port에 표시.
+
+---
+
+## 6. Hover Tooltip
+
+Tooltip은 **문제 포트 근처**에 표시한다.
+
+구조는 최대한 일정하게:
+
+```text
+Problem
+Action
+```
+
+예:
+
+```text
+No Heat supply
+Connect a Heat pipe.
+```
+
+```text
+Output blocked
+Clear the connected belt.
+```
+
+```text
+Missing ingredient B
+Connect the second ingredient belt.
+```
+
+내부 enum, 좌표, buffer 구현 정보 등은 포함하지 않는다.
+
+Tooltip은 짧게 유지한다.
+
+---
+
+## 7. Machine Click Feedback
+
+문제가 있는 기계를 클릭하면 큰 Inspector를 열지 않는다.
+
+대신 몇 초 동안:
+
+1. 문제 포트 pulse/highlight
+2. 관련 belt 또는 pipe의 짧은 연결 경로 highlight
+3. 문제 포트 근처 actionable tooltip 표시
+
+예:
+
+```text
+[Processor] → Belt → Belt → X
+     🔴
+
+Output blocked
+Clear the connected belt.
+```
+
+전체 공장 네트워크를 추적하는 debug visualization은 만들지 않는다.
+
+**Local trace만 사용한다.**
+
+---
+
+## 8. Connection Trace
+
+### Belt 문제
+
+문제 output에서 인접한 연결 라인의 짧은 구간을 강조한다.
+
+### Property 문제
+
+Processor property port와 현재 연결된 pipe의 짧은 구간을 강조한다.
+
+목표는 네트워크 분석 기능이 아니라:
+
+> “이 포트가 이 연결과 관련 있다”
+
+를 즉시 이해시키는 것.
+
+---
+
+## 9. Toast System
+
+Toast는 **지속 상태가 아니라 Event 전용**으로 사용한다.
+
+기계가 계속 Output Blocked라고 반복 Toast를 보내면 안 된다.
+
+### 위치
+
+**우상단**
+
+F3 Dev Inspector가 활성화된 경우 Inspector 아래로 offset한다.
+
+최대 약 3개 동시 표시를 기준으로 한다.
+
+---
+
+## 10. Toast 대상
+
+적합한 Event:
+
+```text
+✓ Order complete
+```
+
+```text
+NEW  🔪 Cutter unlocked
+```
+
+```text
+🌱 Potato unlocked
+```
+
+```text
+🪙 +120
+```
+
+```text
+✓ Game saved
+```
+
+```text
+East Field is now available
+```
+
+지속적인 machine status는 Toast가 아니라 world feedback으로 처리한다.
+
+---
+
+## 11. Toast Deduplication
+
+같은 Event를 연속해서 중복 표시하지 않는다.
+
+예:
+
+```text
+Processor unlocked
+Processor unlocked
+Processor unlocked
+```
+
+금지.
+
+동일 Toast가 이미 표시 중이면 새 항목을 추가하지 않는다.
+
+반복되는 currency 변화 등은 짧은 시간 동안 aggregate 가능하도록 구조를 고려한다.
+
+예:
+
+```text
+🪙 +14
+```
+
+---
+
+## 12. Internal State Separation
+
+구현에서는 internal machine state와 player feedback을 분리한다.
+
+권장 구조:
+
+```text
+Internal Machine State
+        ↓
+Player Feedback Resolver
+        ↓
+Feedback State
+        ↓
+World Indicator / Port / Tooltip
+```
+
+예:
+
+```text
+WaitingForTransferReservation
+```
+
+같은 내부 상태가 있다면 플레이어에게 그대로 표시하지 않는다.
+
+필요하면 Resolver가 이를:
+
+```text
+OutputBlocked
+```
+
+같은 player-facing 상태로 변환한다.
+
+F3 Dev Inspector에서는 내부 state를 그대로 볼 수 있어도 된다.
+
+---
+
+## 13. Bunny Integration Hook
+
+실제 토끼 애니메이션은 UX-07 범위지만, UX-02에서 feedback state를 나중에 animator가 재사용할 수 있게 만든다.
+
+예:
+
+```text
+Working
+NeedsInput
+NeedsProperty
+InvalidRecipe
+OutputBlocked
+```
+
+UX-07에서:
+
+```text
+NeedsInput
+→ 토끼가 빈 입력구를 확인
+
+OutputBlocked
+→ 완성품을 들고 당황
+```
+
+등을 연결할 수 있어야 한다.
+
+---
+
+## Out of Scope
+
+UX-02에서는 다음을 구현하지 않는다.
+
+- 전체 공장 문제 목록
+- Minimap warning
+- Zoom-level warning LOD
+- 복잡한 network path tracing
+- 최종 Bunny animations
+- 최종 UI artwork
+- placement validation tooltip 개선
+- unlock popup 상세 디자인
+- Recipe Book 재구성
+
+이들은 이후 UX milestone에서 처리한다.
+
+---
+
+## Acceptance Criteria
+
+UX-02 완료 시:
+
+- 정상 기계에는 불필요한 상태 badge가 표시되지 않는다.
+- 문제 기계에는 `!`가 표시된다.
+- 실제 문제가 있는 포트가 동시에 강조된다.
+- 여러 문제 중 대표 상태가 정해진 priority로 선택된다.
+- `WAITING`이 player-facing 메시지로 사용되지 않는다.
+- Hover 시 문제와 해결 행동을 짧게 확인할 수 있다.
+- Tooltip은 해당 문제 포트 근처에 나타난다.
+- Machine 클릭 시 문제 포트와 짧은 연결 경로가 강조된다.
+- Processor / Mixer A-B / Cutter A-B 문제를 각각 구분할 수 있다.
+- 지속적인 기계 문제로 Toast를 반복 생성하지 않는다.
+- Toast는 우상단에서 event 중심으로 표시된다.
+- Toast 중복이 제어된다.
+- Internal state와 player-facing feedback state가 분리된다.
+- Dev Inspector 없이도 플레이어가 주요 stall 원인을 진단할 수 있다.

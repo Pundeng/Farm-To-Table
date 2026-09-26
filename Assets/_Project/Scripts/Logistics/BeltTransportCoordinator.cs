@@ -40,6 +40,18 @@ namespace FantasyShapez.Logistics
             GetSystem().RegisterOutputSource(source);
         }
 
+        public void RegisterOutputPair(IItemOutputPairSource source) =>
+            GetSystem().RegisterOutputPair(source);
+
+        public void UnregisterOutputPair(IItemOutputPairSource source) =>
+            GetSystem().UnregisterOutputPair(source);
+
+        public bool CanAcceptOutputPair(Vector2Int cellA, Vector2Int cellB) =>
+            GetSystem().CanAcceptOutputPair(cellA, cellB);
+
+        public bool CanAcceptOutput(Vector2Int cell) =>
+            GetSystem().CanAcceptOutput(cell);
+
         public void RegisterInputReceiver(IRuneInputReceiver receiver)
         {
             GetSystem().RegisterInputReceiver(receiver);

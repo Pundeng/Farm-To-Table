@@ -43,6 +43,13 @@ namespace FantasyShapez.UI
         private BuildingPlacementController controller;
         private Vector2 bookScroll;
         private bool bookOpen;
+        public bool HasModal => popups.Current != null;
+        public bool DismissModal()
+        {
+            if (popups.Current == null) return false;
+            popups.Dismiss();
+            return true;
+        }
 
         public bool BlocksWorldInput
         {
@@ -60,8 +67,11 @@ namespace FantasyShapez.UI
 
                 Vector2 pointer = Mouse.current.position.ReadValue();
                 pointer.y = Screen.height - pointer.y;
-                return GetBookButtonRect().Contains(pointer) ||
-                    (bookOpen && GetBookRect().Contains(pointer));
+                return controller != null && controller.IsFoodDemo
+                    ? controller.OpenDemoPanel == BuildingPlacementController.DemoPanel.Recipe &&
+                      GetBookRect().Contains(pointer)
+                    : GetBookButtonRect().Contains(pointer) ||
+                      (bookOpen && GetBookRect().Contains(pointer));
             }
         }
 
@@ -72,7 +82,9 @@ namespace FantasyShapez.UI
                 throw new ArgumentNullException(nameof(recipe));
             }
 
-            return recipe.Kind == DiscoveredRecipeKind.Processing
+            return recipe.Kind == DiscoveredRecipeKind.Cutting
+                ? $"Ingredient: {recipe.IngredientA.Id}; yields 2 {recipe.Output.Id}"
+                : recipe.Kind == DiscoveredRecipeKind.Processing
                 ? $"Ingredient: {recipe.IngredientA.Id}; Property: {recipe.Property}"
                 : $"Ingredients: {recipe.IngredientA.Id} + {recipe.IngredientB.Id}";
         }
@@ -101,6 +113,13 @@ namespace FantasyShapez.UI
             if (popups.Current != null)
             {
                 DrawPopup(popups.Current);
+                return;
+            }
+
+            if (controller.IsFoodDemo)
+            {
+                if (controller.OpenDemoPanel == BuildingPlacementController.DemoPanel.Recipe)
+                    DrawBook();
                 return;
             }
 
@@ -167,9 +186,16 @@ namespace FantasyShapez.UI
             new(Mathf.Max(8f, Screen.width - 188f),
                 Mathf.Max(8f, Screen.height - 48f), 172f, 32f);
 
-        private static Rect GetBookRect() =>
-            new(Mathf.Max(8f, Screen.width - 340f),
-                Mathf.Max(8f, Screen.height - 408f), 324f,
-                Mathf.Min(344f, Mathf.Max(100f, Screen.height - 72f)));
+        private Rect GetBookRect()
+        {
+            if (controller == null || !controller.IsFoodDemo)
+                return new Rect(Mathf.Max(8f, Screen.width - 340f),
+                    Mathf.Max(8f, Screen.height - 408f), 324f,
+                    Mathf.Min(344f, Mathf.Max(100f, Screen.height - 72f)));
+            float height = Mathf.Min(344f, Mathf.Max(80f, Screen.height - 130f));
+            return new Rect(Mathf.Max(8f, Screen.width - 340f),
+                Mathf.Max(8f, Screen.height - height - 114f),
+                Mathf.Min(324f, Screen.width - 16f), height);
+        }
     }
 }

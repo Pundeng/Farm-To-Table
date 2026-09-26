@@ -48,10 +48,13 @@ namespace FantasyShapez.Food
         [SerializeField] private bool initiallyRestored;
         [SerializeField] private string requiredUnlockCategory;
         [SerializeField] private string requiredUnlockId;
+        [SerializeField] private UnlockKey[] restorationUnlocks = Array.Empty<UnlockKey>();
+        [SerializeField, Min(0)] private int price;
 
         public FarmableRegion(string id, string displayName, Vector2Int minimumCell,
             Vector2Int size, bool initiallyRestored,
-            UnlockKey requiredUnlock = null)
+            UnlockKey requiredUnlock = null, UnlockKey[] restorationUnlocks = null,
+            int price = 0)
         {
             this.id = id;
             this.displayName = displayName;
@@ -60,6 +63,8 @@ namespace FantasyShapez.Food
             this.initiallyRestored = initiallyRestored;
             requiredUnlockCategory = requiredUnlock?.Category;
             requiredUnlockId = requiredUnlock?.Id;
+            this.restorationUnlocks = restorationUnlocks ?? Array.Empty<UnlockKey>();
+            this.price = price;
             Validate();
         }
 
@@ -67,31 +72,62 @@ namespace FantasyShapez.Food
         public string DisplayName => displayName;
         public Vector2Int MinimumCell => minimumCell;
         public Vector2Int Size => size;
+        public int Price => price;
+        public int FarmableCellCount => size.x * size.y;
         public bool InitiallyRestored => initiallyRestored;
         public bool HasRequirement => !string.IsNullOrWhiteSpace(requiredUnlockCategory);
         public string RequiredUnlockCategory => requiredUnlockCategory;
         public string RequiredUnlockId => requiredUnlockId;
+        public IReadOnlyList<UnlockKey> RestorationUnlocks =>
+            restorationUnlocks ?? Array.Empty<UnlockKey>();
 
         public void Validate()
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(displayName) ||
-                size.x <= 0 || size.y <= 0 ||
+                size.x <= 0 || size.y <= 0 || price < 0 ||
                 string.IsNullOrWhiteSpace(requiredUnlockCategory) !=
                 string.IsNullOrWhiteSpace(requiredUnlockId))
             {
                 throw new InvalidOperationException("The farmable region is invalid.");
+            }
+            foreach (UnlockKey reward in RestorationUnlocks)
+            {
+                if (reward == null)
+                    throw new InvalidOperationException("A restoration reward is missing.");
+                reward.Validate();
             }
         }
 
         public bool Contains(Vector2Int cell) =>
             cell.x >= minimumCell.x && cell.y >= minimumCell.y &&
             cell.x - minimumCell.x < size.x && cell.y - minimumCell.y < size.y;
+
+        public bool SharesEdge(FarmableRegion other)
+        {
+            int right = minimumCell.x + size.x;
+            int top = minimumCell.y + size.y;
+            int otherRight = other.minimumCell.x + other.size.x;
+            int otherTop = other.minimumCell.y + other.size.y;
+            return (right == other.minimumCell.x || otherRight == minimumCell.x) &&
+                minimumCell.y < otherTop && other.minimumCell.y < top ||
+                (top == other.minimumCell.y || otherTop == minimumCell.y) &&
+                minimumCell.x < otherRight && other.minimumCell.x < right;
+        }
     }
 
     public enum RegionStatus
     {
         Locked,
         Restorable,
+        Restored
+    }
+
+    public enum RegionPurchaseStatus
+    {
+        ProgressionLocked,
+        NotAdjacent,
+        Unaffordable,
+        Available,
         Restored
     }
 
@@ -124,6 +160,14 @@ namespace FantasyShapez.Food
                     throw new ArgumentException("Region IDs must be unique.", nameof(regions));
                 }
 
+                foreach (FarmableRegion previous in copiedRegions)
+                {
+                    if (region.MinimumCell.x < previous.MinimumCell.x + previous.Size.x &&
+                        previous.MinimumCell.x < region.MinimumCell.x + region.Size.x &&
+                        region.MinimumCell.y < previous.MinimumCell.y + previous.Size.y &&
+                        previous.MinimumCell.y < region.MinimumCell.y + region.Size.y)
+                        throw new ArgumentException("Farmable regions overlap.", nameof(regions));
+                }
                 copiedRegions.Add(region);
             }
 
@@ -133,11 +177,53 @@ namespace FantasyShapez.Food
                 if (region.InitiallyRestored)
                 {
                     unlocks.Grant(new UnlockKey(UnlockKey.RegionCategory, region.Id));
+                    foreach (UnlockKey reward in region.RestorationUnlocks)
+                        unlocks.Grant(reward);
                 }
+
             }
         }
 
         public IReadOnlyList<FarmableRegion> Regions => regions;
+
+        public FarmableRegion GetRegionAt(Vector2Int cell)
+        {
+            foreach (FarmableRegion region in regions)
+                if (region.Contains(cell)) return region;
+            return null;
+        }
+
+        public RegionPurchaseStatus GetPurchaseStatus(string regionId, long currency)
+        {
+            RegionStatus status = GetStatus(regionId);
+            if (status == RegionStatus.Restored) return RegionPurchaseStatus.Restored;
+            if (status == RegionStatus.Locked) return RegionPurchaseStatus.ProgressionLocked;
+            FarmableRegion candidate = regionsById[regionId];
+            bool adjacent = false;
+            foreach (FarmableRegion region in regions)
+            {
+                if (GetStatus(region.Id) == RegionStatus.Restored &&
+                    candidate.SharesEdge(region))
+                {
+                    adjacent = true;
+                    break;
+                }
+            }
+            if (!adjacent) return RegionPurchaseStatus.NotAdjacent;
+            return currency < candidate.Price ? RegionPurchaseStatus.Unaffordable :
+                RegionPurchaseStatus.Available;
+        }
+
+        public bool TryPurchase(string regionId, MarketInventory inventory)
+        {
+            if (inventory == null) throw new ArgumentNullException(nameof(inventory));
+            if (GetPurchaseStatus(regionId, inventory.Currency) != RegionPurchaseStatus.Available)
+                return false;
+            FarmableRegion region = regionsById[regionId];
+            // All eligibility checks precede the currency mutation.
+            if (region.Price > 0 && !inventory.TrySpendCurrency(region.Price)) return false;
+            return TryRestore(regionId);
+        }
 
         public RegionStatus GetStatus(string regionId)
         {
@@ -159,12 +245,18 @@ namespace FantasyShapez.Food
 
         public bool TryRestore(string regionId)
         {
-            if (GetStatus(regionId) != RegionStatus.Restorable)
+            if (GetStatus(regionId) != RegionStatus.Restorable ||
+                GetPurchaseStatus(regionId, long.MaxValue) != RegionPurchaseStatus.Available)
             {
                 return false;
             }
 
-            return unlocks.Grant(new UnlockKey(UnlockKey.RegionCategory, regionId));
+            FarmableRegion region = regionsById[regionId];
+            if (!unlocks.Grant(new UnlockKey(UnlockKey.RegionCategory, regionId)))
+                return false;
+            foreach (UnlockKey reward in region.RestorationUnlocks)
+                unlocks.Grant(reward);
+            return true;
         }
 
         public bool CanFarm(Vector2Int cell)

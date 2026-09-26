@@ -71,6 +71,7 @@ namespace FantasyShapez.Food
         public SavedBelt belt;
         public SavedProcessor processor;
         public SavedMixer mixer;
+        public SavedCutter cutter;
     }
 
     [Serializable]
@@ -115,6 +116,15 @@ namespace FantasyShapez.Food
     }
 
     [Serializable]
+    public sealed class SavedCutter
+    {
+        public CutterState state;
+        public SavedFood input;
+        public SavedFood output;
+        public float elapsedSeconds;
+    }
+
+    [Serializable]
     public sealed class SavedPropertyConnection
     {
         public int x;
@@ -151,7 +161,9 @@ namespace FantasyShapez.Food
                     (building.definitionId == nameof(Harvester) || IsEmpty(building.harvester)) &&
                     (building.definitionId == nameof(Belt) || IsEmpty(building.belt)) &&
                     (building.definitionId == nameof(Processor) || IsEmpty(building.processor)) &&
-                    (building.definitionId == nameof(BasicMixer) || IsEmpty(building.mixer));
+                    (building.definitionId == nameof(BasicMixer) || IsEmpty(building.mixer)) &&
+                    (building.definitionId == nameof(Cutter) ||
+                        building.cutter == null || IsEmpty(building.cutter));
                 if (!placeholdersMatch)
                 {
                     continue;
@@ -162,6 +174,7 @@ namespace FantasyShapez.Food
                 if (building.definitionId != nameof(Belt)) building.belt = null;
                 if (building.definitionId != nameof(Processor)) building.processor = null;
                 if (building.definitionId != nameof(BasicMixer)) building.mixer = null;
+                if (building.definitionId != nameof(Cutter)) building.cutter = null;
 
                 if (building.belt != null && IsEmpty(building.belt.item))
                     building.belt.item = null;
@@ -175,6 +188,11 @@ namespace FantasyShapez.Food
                     if (IsEmpty(building.mixer.slotA)) building.mixer.slotA = null;
                     if (IsEmpty(building.mixer.slotB)) building.mixer.slotB = null;
                     if (IsEmpty(building.mixer.output)) building.mixer.output = null;
+                }
+                if (building.cutter != null)
+                {
+                    if (IsEmpty(building.cutter.input)) building.cutter.input = null;
+                    if (IsEmpty(building.cutter.output)) building.cutter.output = null;
                 }
             }
         }
@@ -201,6 +219,10 @@ namespace FantasyShapez.Food
 
         private static bool IsEmpty(SavedMixer state) => IsEmpty(state.slotA) &&
             IsEmpty(state.slotB) && IsEmpty(state.output);
+
+        private static bool IsEmpty(SavedCutter state) =>
+            state.state == default && IsEmpty(state.input) &&
+            IsEmpty(state.output) && state.elapsedSeconds == 0f;
 
         public static IEnumerable<SavedBuilding> ReconstructionOrder(
             FactoryWorldData world) => world.buildings
@@ -230,13 +252,15 @@ namespace FantasyShapez.Food
                     (building.harvester != null ? 1 : 0) +
                     (building.belt != null ? 1 : 0) +
                     (building.processor != null ? 1 : 0) +
-                    (building.mixer != null ? 1 : 0);
+                    (building.mixer != null ? 1 : 0) +
+                    (building.cutter != null ? 1 : 0);
                 if (stateCount != 1 ||
                     building.definitionId != nameof(FarmPlot) && building.farmPlot != null ||
                     building.definitionId != nameof(Harvester) && building.harvester != null ||
                     building.definitionId != nameof(Belt) && building.belt != null ||
                     building.definitionId != nameof(Processor) && building.processor != null ||
-                    building.definitionId != nameof(BasicMixer) && building.mixer != null)
+                    building.definitionId != nameof(BasicMixer) && building.mixer != null ||
+                    building.definitionId != nameof(Cutter) && building.cutter != null)
                 {
                     string states = string.Join(", ", new[]
                     {
@@ -244,7 +268,8 @@ namespace FantasyShapez.Food
                         building.harvester != null ? nameof(building.harvester) : null,
                         building.belt != null ? nameof(building.belt) : null,
                         building.processor != null ? nameof(building.processor) : null,
-                        building.mixer != null ? nameof(building.mixer) : null
+                        building.mixer != null ? nameof(building.mixer) : null,
+                        building.cutter != null ? nameof(building.cutter) : null
                     }.Where(state => state != null));
                     throw new ArgumentException($"Building '{building.definitionId}' at " +
                         $"({building.x}, {building.y}) has mismatched state: {states}.");
@@ -276,8 +301,10 @@ namespace FantasyShapez.Food
             IReadOnlyList<SavedUnlock> savedUnlocks,
             IReadOnlyList<ProcessingRecipe> processingRecipes,
             IReadOnlyList<MixingRecipe> mixingRecipes,
-            Vector2Int marketCell, Vector2Int hubCell)
+            Vector2Int marketCell, Vector2Int? hubCell,
+            IReadOnlyList<CuttingRecipe> cuttingRecipes = null)
         {
+            cuttingRecipes ??= Array.Empty<CuttingRecipe>();
             Validate(world);
             if (options == null || sources == null || regions == null ||
                 savedUnlocks == null || processingRecipes == null ||
@@ -306,8 +333,8 @@ namespace FantasyShapez.Food
             var occupancy = new GridOccupancy();
             if (!occupancy.TryRegister("Market", marketCell, Vector2Int.one,
                     BuildingRotation.Degrees0, out _) ||
-                !occupancy.TryRegister("Hub", hubCell, Vector2Int.one,
-                    BuildingRotation.Degrees0, out _))
+                hubCell.HasValue && !occupancy.TryRegister("Hub", hubCell.Value,
+                    Vector2Int.one, BuildingRotation.Degrees0, out _))
             {
                 throw new ArgumentException("Scene fixtures overlap.");
             }
@@ -381,7 +408,7 @@ namespace FantasyShapez.Food
 
                 if (saved.belt != null && saved.belt.item != null &&
                     !IsAuthoredFood(saved.belt.item, options, processingRecipes,
-                        mixingRecipes))
+                        mixingRecipes, cuttingRecipes))
                 {
                     throw new ArgumentException("Belt item is not authored in this scene.");
                 }
@@ -415,6 +442,12 @@ namespace FantasyShapez.Food
                         throw new ArgumentException("Mixer food is unavailable.");
                     }
                 }
+
+                if (saved.cutter != null && saved.cutter.state != CutterState.Idle &&
+                    !cuttingRecipes.Any(recipe =>
+                        Matches(recipe.Input, saved.cutter.input) &&
+                        Matches(recipe.Output, saved.cutter.output)))
+                    throw new ArgumentException("Cutter recipe is unavailable.");
             }
 
             foreach (SavedBuilding saved in world.buildings.Where(item =>
@@ -443,7 +476,7 @@ namespace FantasyShapez.Food
                     saved.harvester.outputs.Length > prefab.OutputCapacity ||
                     saved.harvester.outputs.Any(food =>
                         !IsAuthoredFood(food, options, processingRecipes,
-                            mixingRecipes)))
+                            mixingRecipes, cuttingRecipes)))
                 {
                     throw new ArgumentException("Harvester output is unavailable.");
                 }
@@ -453,12 +486,15 @@ namespace FantasyShapez.Food
         private static bool IsAuthoredFood(SavedFood food,
             IReadOnlyList<BuildingPlacementOption> options,
             IReadOnlyList<ProcessingRecipe> processingRecipes,
-            IReadOnlyList<MixingRecipe> mixingRecipes)
+            IReadOnlyList<MixingRecipe> mixingRecipes,
+            IReadOnlyList<CuttingRecipe> cuttingRecipes)
         {
             if (processingRecipes.Any(recipe => Matches(recipe.Input, food) ||
                     Matches(recipe.Output, food)) ||
                 mixingRecipes.Any(recipe => Matches(recipe.IngredientA, food) ||
-                    Matches(recipe.IngredientB, food) || Matches(recipe.Output, food)))
+                    Matches(recipe.IngredientB, food) || Matches(recipe.Output, food)) ||
+                cuttingRecipes.Any(recipe => Matches(recipe.Input, food) ||
+                    Matches(recipe.Output, food)))
             {
                 return true;
             }
@@ -537,6 +573,20 @@ namespace FantasyShapez.Food
             mixer?.slotA?.Validate();
             mixer?.slotB?.Validate();
             mixer?.output?.Validate();
+
+            SavedCutter cutter = building.cutter;
+            if (cutter != null && (!Enum.IsDefined(typeof(CutterState), cutter.state) ||
+                !IsFiniteNonnegative(cutter.elapsedSeconds) ||
+                cutter.state == CutterState.Idle &&
+                    (cutter.input != null || cutter.output != null ||
+                     cutter.elapsedSeconds != 0f) ||
+                cutter.state != CutterState.Idle &&
+                    (cutter.input == null || cutter.output == null) ||
+                cutter.state == CutterState.WaitingForOutputs &&
+                    cutter.elapsedSeconds != 0f))
+                throw new ArgumentException("Invalid Cutter state.");
+            cutter?.input?.Validate();
+            cutter?.output?.Validate();
         }
 
         private static bool IsFiniteNonnegative(float value) =>

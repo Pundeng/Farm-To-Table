@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FantasyShapez.Buildings;
 using FantasyShapez.Food;
 using FantasyShapez.Logistics;
@@ -12,6 +13,119 @@ namespace FantasyShapez.Tests.EditMode
         private static readonly FoodItemData Apple = new("Apple", FoodItemKind.RawIngredient);
         private static readonly FoodItemData DriedApple =
             new("Dried Apple", FoodItemKind.ProcessedFood);
+
+        [Test]
+        public void PipePathPreview_ValidatesCornerAndDoesNotPlaceUntilCommit()
+        {
+            var root = new GameObject("Pipe path preview test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var occupancy = new GridOccupancy();
+                var source = new Vector2Int(0, 0);
+                var supply = new PropertySupplyPlayMode(grid, null, occupancy,
+                    root.transform, new[] { new PropertySourceSetup
+                    {
+                        cell = source, property = CookingProperty.Heat, capacity = 2
+                    } });
+                Assert.That(supply.TryPlaceCollector(Vector2Int.right, source), Is.True);
+                var path = new[]
+                {
+                    new Vector2Int(2, 0), new Vector2Int(3, 0),
+                    new Vector2Int(3, 1)
+                };
+                CollectionAssert.AreEqual(new[] { true, true, true },
+                    supply.PreviewPipePath(path));
+                Assert.That(occupancy.TryGetBuilding(path[0], out _), Is.False);
+                foreach (Vector2Int cell in path)
+                    Assert.That(supply.TryPlacePipe(cell), Is.True);
+                CollectionAssert.AreEqual(new[] { false, false, false },
+                    supply.PreviewPipePath(path));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void PipePathPreview_MarksBlockedAndDisconnectedSegmentsInvalid()
+        {
+            var root = new GameObject("Blocked pipe preview test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var occupancy = new GridOccupancy();
+                var supply = new PropertySupplyPlayMode(grid, null, occupancy,
+                    root.transform, new[] { new PropertySourceSetup
+                    {
+                        cell = Vector2Int.zero, property = CookingProperty.Heat,
+                        capacity = 2
+                    } });
+                Assert.That(supply.TryPlaceCollector(Vector2Int.right,
+                    Vector2Int.zero), Is.True);
+                Assert.That(occupancy.TryRegister("Block", new Vector2Int(3, 0),
+                    Vector2Int.one, BuildingRotation.Degrees0, out _), Is.True);
+                CollectionAssert.AreEqual(new[] { true, false, false },
+                    supply.PreviewPipePath(new[]
+                    {
+                        new Vector2Int(2, 0), new Vector2Int(3, 0),
+                        new Vector2Int(4, 0)
+                    }));
+                Assert.That(occupancy.TryGetBuilding(new Vector2Int(2, 0),
+                    out _), Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void PropertyClipboard_RejectsMergeWithAnotherSource()
+        {
+            var root = new GameObject("Property clipboard test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var occupancy = new GridOccupancy();
+                var supply = new PropertySupplyPlayMode(grid, null, occupancy,
+                    root.transform, new[]
+                    {
+                        new PropertySourceSetup { cell = Vector2Int.zero,
+                            property = CookingProperty.Heat, capacity = 2 },
+                        new PropertySourceSetup { cell = new Vector2Int(5, 0),
+                            property = CookingProperty.Heat, capacity = 2 }
+                    });
+                Assert.That(supply.TryPlaceCollector(Vector2Int.right,
+                    Vector2Int.zero), Is.True);
+                Assert.That(supply.TryPlacePipe(new Vector2Int(2, 0)), Is.True);
+                Assert.That(occupancy.TryGetBuilding(new Vector2Int(2, 0),
+                    out BuildingPlacement selected), Is.True);
+                Assert.That(supply.TryGetClipboardConnection(selected,
+                    out PropertyConnection connection), Is.True);
+                var items = new[] { new PropertyGroupCopyItem(connection, Vector2Int.zero) };
+                Assert.That(supply.TryPlanClipboardConnections(items,
+                    new Vector2Int(3, 0), new HashSet<Vector2Int>(), out _), Is.True);
+                Assert.That(supply.TryPlanClipboardConnections(items,
+                    new Vector2Int(3, 0), new HashSet<Vector2Int>(),
+                    new[] { new Vector2Int(2, 0) }, out _), Is.False,
+                    "A cut cannot rely on the Pipe it removes.");
+                Assert.That(occupancy.TryGetBuilding(new Vector2Int(3, 0),
+                    out _), Is.False, "Preview must leave the live occupancy unchanged.");
+                Assert.That(supply.TryPlaceCollector(new Vector2Int(4, 0),
+                    new Vector2Int(5, 0)), Is.True);
+                Assert.That(supply.TryPlanClipboardConnections(items,
+                    new Vector2Int(3, 0), new HashSet<Vector2Int>(), out _), Is.False);
+                Assert.That(occupancy.TryGetBuilding(new Vector2Int(2, 0),
+                    out BuildingPlacement stillSelected), Is.True);
+                Assert.That(stillSelected, Is.SameAs(selected));
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
 
         [Test]
         public void PlacedProcessor_RegistersDemandAndAcceptsFarmAppleWhenAirPipeConnects()

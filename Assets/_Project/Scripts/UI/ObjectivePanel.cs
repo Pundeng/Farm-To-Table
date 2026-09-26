@@ -1,3 +1,4 @@
+using FantasyShapez.Buildings;
 using FantasyShapez.Food;
 using FantasyShapez.Objectives;
 using FantasyShapez.Production;
@@ -29,6 +30,23 @@ namespace FantasyShapez.UI
         private Harvester selectedHarvester;
         private Processor selectedProcessor;
         private BasicMixer selectedMixer;
+        private Cutter selectedCutter;
+        private BuildingPlacementController demoController;
+        private Vector2 configurationScroll;
+
+        public bool HasConfiguration => GetConfigurationPanelHeight() > 0f;
+        public void CloseConfiguration()
+        {
+            selectedEngraver = null;
+            selectedInfuser = null;
+            selectedFarmPlot = null;
+            selectedHarvester = null;
+            selectedProcessor = null;
+            selectedMixer = null;
+            selectedCutter = null;
+        }
+
+        private void Awake() => demoController = GetComponent<BuildingPlacementController>();
 
         public bool IsPointerOverPanel
         {
@@ -45,7 +63,9 @@ namespace FantasyShapez.UI
                 return (hub != null && hub.Progress != null &&
                         new Rect(16f, 16f, 320f, GetObjectivePanelHeight()).Contains(pointer)) ||
                     (configurationHeight > 0f &&
-                     new Rect(352f, 16f, 300f, configurationHeight).Contains(pointer));
+                     new Rect(ConfigurationX, ConfigurationY, 300f,
+                         VisibleConfigurationHeight(configurationHeight))
+                         .Contains(pointer));
             }
         }
 
@@ -56,6 +76,7 @@ namespace FantasyShapez.UI
 
         public void ShowEngraver(Engraver engraver)
         {
+            selectedCutter = null;
             selectedEngraver = engraver;
             selectedInfuser = null;
             selectedFarmPlot = null;
@@ -66,6 +87,7 @@ namespace FantasyShapez.UI
 
         public void ShowElementInfuser(ElementInfuser infuser)
         {
+            selectedCutter = null;
             selectedEngraver = null;
             selectedInfuser = infuser;
             selectedFarmPlot = null;
@@ -76,6 +98,7 @@ namespace FantasyShapez.UI
 
         public void ShowFarmPlot(FarmPlot farmPlot)
         {
+            selectedCutter = null;
             selectedEngraver = null;
             selectedInfuser = null;
             selectedFarmPlot = farmPlot;
@@ -86,6 +109,7 @@ namespace FantasyShapez.UI
 
         public void ShowHarvester(Harvester harvester)
         {
+            selectedCutter = null;
             selectedEngraver = null;
             selectedInfuser = null;
             selectedFarmPlot = null;
@@ -96,6 +120,7 @@ namespace FantasyShapez.UI
 
         public void ShowProcessor(Processor processor)
         {
+            selectedCutter = null;
             selectedEngraver = null;
             selectedInfuser = null;
             selectedFarmPlot = null;
@@ -106,12 +131,19 @@ namespace FantasyShapez.UI
 
         public void ShowMixer(BasicMixer mixer)
         {
+            selectedCutter = null;
             selectedEngraver = null;
             selectedInfuser = null;
             selectedFarmPlot = null;
             selectedHarvester = null;
             selectedProcessor = null;
             selectedMixer = mixer;
+        }
+
+        public void ShowCutter(Cutter cutter)
+        {
+            ShowMixer(null);
+            selectedCutter = cutter;
         }
 
         private void OnGUI()
@@ -121,7 +153,49 @@ namespace FantasyShapez.UI
                 DrawObjectivePanel();
             }
 
-            DrawMachineConfigurationPanel();
+            if (demoController == null || !demoController.IsFoodDemo ||
+                demoController.OpenDemoPanel == BuildingPlacementController.DemoPanel.Machine)
+            {
+                Matrix4x4 original = GUI.matrix;
+                bool originalEnabled = GUI.enabled;
+                if (demoController?.BlocksAllWorldInput == true) GUI.enabled = false;
+                if (demoController != null && demoController.IsFoodDemo)
+                    GUI.matrix = Matrix4x4.Translate(new Vector3(
+                        ConfigurationX - 352f, ConfigurationY - 16f)) *
+                        original;
+                DrawMachineConfigurationPanel();
+                GUI.matrix = original;
+                GUI.enabled = originalEnabled;
+                if (demoController != null && demoController.IsFoodDemo &&
+                    !HasConfiguration &&
+                    demoController.OpenDemoPanel == BuildingPlacementController.DemoPanel.Machine)
+                    demoController.ClosePanel();
+            }
+        }
+
+        private float ConfigurationX => demoController != null && demoController.IsFoodDemo
+            ? Mathf.Max(8f, Screen.width - 308f) : 352f;
+        private float ConfigurationY => demoController != null && demoController.IsFoodDemo &&
+            Screen.width < 500f ? 76f : 16f;
+        private float VisibleConfigurationHeight(float height) =>
+            demoController != null && demoController.IsFoodDemo
+                ? Mathf.Max(60f, Mathf.Min(height,
+                    Screen.height - ConfigurationY - 114f)) : height;
+
+        private void BeginConfiguration(float height)
+        {
+            float visible = VisibleConfigurationHeight(height);
+            GUI.Box(new Rect(352f, 16f, 300f, visible), GUIContent.none);
+            GUILayout.BeginArea(new Rect(364f, 24f, 276f, visible - 16f));
+            if (demoController != null && demoController.IsFoodDemo)
+                configurationScroll = GUILayout.BeginScrollView(configurationScroll);
+        }
+
+        private void EndConfiguration()
+        {
+            if (demoController != null && demoController.IsFoodDemo)
+                GUILayout.EndScrollView();
+            GUILayout.EndArea();
         }
 
         private void DrawObjectivePanel()
@@ -194,6 +268,7 @@ namespace FantasyShapez.UI
                 return 150f + (selectedHarvester.ConnectedFarmPlot?.AvailableCrops.Count ?? 0) * 28f;
             if (selectedProcessor != null) return 190f;
             if (selectedMixer != null) return 180f;
+            if (selectedCutter != null) return 180f;
             return 0f;
         }
 
@@ -223,17 +298,37 @@ namespace FantasyShapez.UI
             {
                 DrawMixerPanel();
             }
+            else if (selectedCutter != null)
+            {
+                DrawCutterPanel();
+            }
+        }
+
+        private void DrawCutterPanel()
+        {
+            const float height = 180f;
+            BeginConfiguration(height);
+            GUILayout.Label("Cutter");
+            if (demoController?.IsDevInspectorOpen == true || demoController?.IsFoodDemo != true)
+            {
+                GUILayout.Label($"Input: {selectedCutter.InputCell}");
+                GUILayout.Label($"Outputs: {selectedCutter.OutputACell}, " +
+                    selectedCutter.OutputBCell);
+            }
+            GUILayout.Label($"State: {selectedCutter.State}");
+            GUILayout.Label(selectedCutter.LastEvent);
+            if (GUILayout.Button("Close")) selectedCutter = null;
+            EndConfiguration();
         }
 
         private void DrawMixerPanel()
         {
             const float height = 180f;
-            GUI.Box(new Rect(352f, 16f, 300f, height), GUIContent.none);
-            GUILayout.BeginArea(new Rect(364f, 24f, 276f, height - 16f));
+            BeginConfiguration(height);
             GUILayout.Label("Basic Mixer");
-            GUILayout.Label($"Input A {selectedMixer.InputACell}: " +
+            GUILayout.Label("Input A: " +
                 (selectedMixer.SlotA?.Id ?? "empty"));
-            GUILayout.Label($"Input B {selectedMixer.InputBCell}: " +
+            GUILayout.Label("Input B: " +
                 (selectedMixer.SlotB?.Id ?? "empty"));
             GUILayout.Label(selectedMixer.HasOutput
                 ? $"Output blocked: {selectedMixer.PeekOutput()?.ToString()}"
@@ -244,17 +339,17 @@ namespace FantasyShapez.UI
                 selectedMixer = null;
             }
 
-            GUILayout.EndArea();
+            EndConfiguration();
         }
 
         private void DrawProcessorPanel()
         {
             const float height = 190f;
-            GUI.Box(new Rect(352f, 16f, 300f, height), GUIContent.none);
-            GUILayout.BeginArea(new Rect(364f, 24f, 276f, height - 16f));
+            BeginConfiguration(height);
             GUILayout.Label("Processor");
             GUILayout.Label($"State: {selectedProcessor.ProcessingStateMessage}");
-            GUILayout.Label($"Property port: {selectedProcessor.PropertyCell}");
+            if (demoController?.IsDevInspectorOpen == true || demoController?.IsFoodDemo != true)
+                GUILayout.Label($"Property port: {selectedProcessor.PropertyCell}");
             GUILayout.Label(selectedProcessor.SupplyMessage);
             GUILayout.Label($"Last event: {selectedProcessor.LastRecipeMessage}");
             if (selectedProcessor.HasOutput)
@@ -267,14 +362,13 @@ namespace FantasyShapez.UI
                 selectedProcessor = null;
             }
 
-            GUILayout.EndArea();
+            EndConfiguration();
         }
 
         private void DrawFarmPlotPanel()
         {
             float height = 132f + selectedFarmPlot.AvailableCrops.Count * 28f;
-            GUI.Box(new Rect(352f, 16f, 300f, height), GUIContent.none);
-            GUILayout.BeginArea(new Rect(364f, 24f, 276f, height - 16f));
+            BeginConfiguration(height);
             GUILayout.Label("Farm Plot");
             GUILayout.Label($"Crop: {selectedFarmPlot.SelectedCrop?.Id ?? "None"}");
             GUILayout.Label($"Mature crops: {selectedFarmPlot.MatureCount} / " +
@@ -290,15 +384,14 @@ namespace FantasyShapez.UI
                 selectedFarmPlot = null;
             }
 
-            GUILayout.EndArea();
+            EndConfiguration();
         }
 
         private void DrawHarvesterPanel()
         {
             FarmPlot plot = selectedHarvester.ConnectedFarmPlot;
             float height = 150f + (plot?.AvailableCrops.Count ?? 0) * 28f;
-            GUI.Box(new Rect(352f, 16f, 300f, height), GUIContent.none);
-            GUILayout.BeginArea(new Rect(364f, 24f, 276f, height - 16f));
+            BeginConfiguration(height);
             GUILayout.Label("Harvester");
             GUILayout.Label(plot != null
                 ? $"Farm Plot crop: {plot.SelectedCrop?.Id ?? "None"}"
@@ -308,14 +401,15 @@ namespace FantasyShapez.UI
                 GUILayout.Label($"Mature crops: {plot.MatureCount} / {plot.MatureCapacity}");
                 DrawCropSelection(plot);
             }
-            GUILayout.Label($"Buffered crops: {selectedHarvester.OutputCount} / " +
-                selectedHarvester.OutputCapacity);
+            if (demoController?.IsDevInspectorOpen == true || demoController?.IsFoodDemo != true)
+                GUILayout.Label($"Buffered crops: {selectedHarvester.OutputCount} / " +
+                    selectedHarvester.OutputCapacity);
             if (GUILayout.Button("Close"))
             {
                 selectedHarvester = null;
             }
 
-            GUILayout.EndArea();
+            EndConfiguration();
         }
 
         private static void DrawCropSelection(FarmPlot plot)
@@ -329,7 +423,10 @@ namespace FantasyShapez.UI
 
                 if (!plot.IsCropUnlocked(crop))
                 {
-                    GUILayout.Label($"{crop.Id} (locked: complete the Market order)");
+                    GUILayout.Label($"{crop.Id} (locked: " +
+                        (crop.Id == "Potato" ? "restore East Field" :
+                         crop.Id == "Basil" ? "buy Basil Seeds" :
+                         "complete the Market order") + ")");
                 }
                 else if (GUILayout.Button($"Grow {crop.Id}"))
                 {
@@ -345,9 +442,7 @@ namespace FantasyShapez.UI
 
         private void DrawEngraverPanel()
         {
-            var panelRect = new Rect(352f, 16f, 300f, 214f);
-            GUI.Box(panelRect, GUIContent.none);
-            GUILayout.BeginArea(new Rect(364f, 24f, 276f, 198f));
+            BeginConfiguration(214f);
             GUILayout.Label("Engraver Configuration");
             GUILayout.Label("Sigil (next rune)");
             DrawSigilButtons();
@@ -360,7 +455,7 @@ namespace FantasyShapez.UI
             GUILayout.Label($"Installed effect: {durationPercent:0}% processing duration");
 
             bool previousEnabled = GUI.enabled;
-            GUI.enabled = !selectedEngraver.IsAccelerationSocketOccupied &&
+            GUI.enabled = previousEnabled && !selectedEngraver.IsAccelerationSocketOccupied &&
                 hub.AccelerationRuneCount >= 1;
             if (GUILayout.Button("Install Acceleration Rune"))
             {
@@ -373,7 +468,7 @@ namespace FantasyShapez.UI
                 selectedEngraver = null;
             }
 
-            GUILayout.EndArea();
+            EndConfiguration();
         }
 
         private void DrawSigilButtons()
@@ -382,7 +477,7 @@ namespace FantasyShapez.UI
             foreach (RuneSigil sigil in EngraverSigilOptions)
             {
                 bool previousEnabled = GUI.enabled;
-                GUI.enabled = selectedEngraver.SelectedSigil != sigil;
+                GUI.enabled = previousEnabled && selectedEngraver.SelectedSigil != sigil;
                 if (GUILayout.Button(sigil.ToString()))
                 {
                     selectedEngraver.SetSelectedSigil(sigil);
@@ -401,16 +496,14 @@ namespace FantasyShapez.UI
                 return;
             }
 
-            var panelRect = new Rect(352f, 16f, 300f, 128f);
-            GUI.Box(panelRect, GUIContent.none);
-            GUILayout.BeginArea(new Rect(364f, 24f, 276f, 112f));
+            BeginConfiguration(128f);
             GUILayout.Label("Element Infuser Configuration");
             GUILayout.Label("Primary element (next rune)");
             GUILayout.BeginHorizontal();
             foreach (RuneElement element in InfuserElementOptions)
             {
                 bool previousEnabled = GUI.enabled;
-                GUI.enabled = selectedInfuser.PrimaryElement != element;
+                GUI.enabled = previousEnabled && selectedInfuser.PrimaryElement != element;
                 if (GUILayout.Button(element.ToString()))
                 {
                     selectedInfuser.SetPrimaryElement(element);
@@ -425,7 +518,7 @@ namespace FantasyShapez.UI
                 selectedInfuser = null;
             }
 
-            GUILayout.EndArea();
+            EndConfiguration();
         }
     }
 }
