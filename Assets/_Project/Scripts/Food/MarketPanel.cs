@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using FantasyShapez.Buildings;
 using FantasyShapez.Grid;
@@ -14,9 +15,17 @@ namespace FantasyShapez.Food
         [SerializeField] private BuildingPlacementController buildings = null;
         private Vector2 scrollPosition;
         private Vector2 objectiveScroll;
+        private Vector2 detailScroll;
+        private enum MarketSection { Current, Seeds, Sales, History }
+        private MarketSection section;
+        private float orderFeedbackUntil;
+        private float regionFeedbackUntil;
+        private string restoredRegionName;
         private Vector2 regionScroll;
         private ProgressionSaveService saves;
         private string saveMessage;
+        private DateTime cachedSaveWriteUtc;
+        private string cachedSaveSummary;
         private string selectedRegionId;
         private string regionMessage;
         private Vector2 objectiveAnchor;
@@ -41,7 +50,8 @@ namespace FantasyShapez.Food
                 pointer.y = Screen.height - pointer.y;
                 return buildings != null && buildings.IsFoodDemo
                     ? buildings.OpenDemoPanel == BuildingPlacementController.DemoPanel.Market &&
-                      GetObjectivePopoverRect().Contains(pointer)
+                      (section == MarketSection.Current ?
+                          GetObjectivePopoverRect() : GetDetailPanelRect()).Contains(pointer)
                     : GetPanelRect().Contains(pointer);
             }
         }
@@ -59,7 +69,11 @@ namespace FantasyShapez.Food
                 bool originalEnabled = GUI.enabled;
                 if (buildings.BlocksAllWorldInput) GUI.enabled = false;
                 if (buildings.OpenDemoPanel == BuildingPlacementController.DemoPanel.Market)
-                    DrawObjectivePopover();
+                {
+                    if (section == MarketSection.Current) DrawObjectivePopover();
+                    else DrawMarketDetail();
+                }
+                DrawWorldFeedback();
                 if (buildings.OpenDemoPanel == BuildingPlacementController.DemoPanel.Region)
                     DrawRegionPanel();
                 GUI.enabled = originalEnabled;
@@ -181,42 +195,14 @@ namespace FantasyShapez.Food
                 }
             }
 
-            if (buildings != null)
+            // Prototype has no Demo System Menu; keep its legacy regression controls.
+            if (buildings != null && !buildings.IsFoodDemo)
             {
-                saves ??= new ProgressionSaveService(market, buildings);
                 GUILayout.Space(6f);
-                GUILayout.Label("Factory Save");
-                GUILayout.Label(SavePath);
-                if (GUILayout.Button(buildings.IsFoodDemo ? "Save factory" :
-                        "Save progression"))
-                    SaveGame();
-
-                if (GUILayout.Button(buildings.IsFoodDemo ? "Load factory" :
-                        "Load progression"))
-                {
-                    if (!saves.TryReadValidated(SavePath,
-                            out ProgressionSaveData data, out string error))
-                    {
-                        saveMessage = $"Load failed: {error}";
-                    }
-                    else if (data.version == 1)
-                    {
-                        saveMessage = saves.TryLoad(SavePath,
-                            out error) ? "Version 1 progression loaded." :
-                            $"Load failed: {error}";
-                    }
-                    else
-                    {
-                        saveMessage = FactoryWorldLoadSession.TryBegin(data, out error) ?
-                            "Reconstructing factory..." : $"Load failed: {error}";
-                    }
-                }
-
-                string displayedMessage = saveMessage ?? FactoryWorldLoadSession.LastMessage;
-                if (!string.IsNullOrEmpty(displayedMessage))
-                {
-                    GUILayout.Label(displayedMessage);
-                }
+                GUILayout.Label("Prototype Save");
+                if (GUILayout.Button("Save progression")) SaveGame();
+                if (GUILayout.Button("Load progression")) LoadGame();
+                if (!string.IsNullOrEmpty(SaveMessage)) GUILayout.Label(SaveMessage);
             }
 
             GUILayout.EndScrollView();
@@ -270,31 +256,66 @@ namespace FantasyShapez.Food
         }
 
         public void CloseRegion() => selectedRegionId = null;
+        public void OpenCurrentOrder() => section = MarketSection.Current;
+        public void ShowOrderCompletion() => orderFeedbackUntil = Time.time + 3f;
         public string SaveMessage => saveMessage ?? FactoryWorldLoadSession.LastMessage;
 
-        public void SaveGame()
+        public bool SaveGame()
         {
-            if (market == null || buildings == null) return;
+            if (market == null || buildings == null) return false;
             saves ??= new ProgressionSaveService(market, buildings);
             bool saved = saves.TrySave(SavePath, out string error);
             saveMessage = saved ?
                 "Factory saved." : $"Save failed: {error}";
+            if (saved) cachedSaveSummary = null;
             if (saved) GameSaved?.Invoke();
+            return saved;
         }
 
-        public void LoadGame()
+        public string GetSaveSummary()
         {
-            if (market == null || buildings == null) return;
+            if (market == null || buildings == null) return "Save unavailable.";
+            if (!File.Exists(SavePath)) return "No saved game.";
+            DateTime writeUtc = File.GetLastWriteTimeUtc(SavePath);
+            if (cachedSaveSummary != null && cachedSaveWriteUtc == writeUtc)
+                return cachedSaveSummary;
+            saves ??= new ProgressionSaveService(market, buildings);
+            if (!saves.TryReadValidated(SavePath, out ProgressionSaveData data,
+                    out string error)) return $"Save unavailable: {error}";
+            string timestamp = File.GetLastWriteTime(SavePath).ToString("g");
+            int restored = data.unlocks.Count(key =>
+                key?.category == UnlockKey.RegionCategory);
+            cachedSaveWriteUtc = writeUtc;
+            cachedSaveSummary = $"Last saved: {timestamp}\n" +
+                $"Saved order: {data.activeOrderId ?? "All complete"}\n" +
+                $"Restored regions: {restored}";
+            return cachedSaveSummary;
+        }
+
+        public bool LoadGame()
+        {
+            if (market == null || buildings == null) return false;
             saves ??= new ProgressionSaveService(market, buildings);
             if (!saves.TryReadValidated(SavePath,
                     out ProgressionSaveData data, out string error))
+            {
                 saveMessage = $"Load failed: {error}";
+                return false;
+            }
             else if (data.version == 1)
-                saveMessage = saves.TryLoad(SavePath, out error) ?
-                    "Version 1 progression loaded." : $"Load failed: {error}";
+            {
+                bool loaded = saves.TryLoad(SavePath, out error);
+                saveMessage = loaded ? "Version 1 progression loaded." :
+                    $"Load failed: {error}";
+                return loaded;
+            }
             else
-                saveMessage = FactoryWorldLoadSession.TryBegin(data, out error) ?
-                    "Reconstructing factory..." : $"Load failed: {error}";
+            {
+                bool started = FactoryWorldLoadSession.TryBegin(data, out error);
+                saveMessage = started ? "Reconstructing factory..." :
+                    $"Load failed: {error}";
+                return started;
+            }
         }
 
         private void DrawWorldObjective()
@@ -360,17 +381,100 @@ namespace FantasyShapez.Food
                 if (order.Order.Unlocks.Count > 0) GUILayout.Label("Reward");
                 foreach (UnlockKey unlock in order.Order.Unlocks)
                     GUILayout.Label($"Unlock: {unlock.Id}");
+                GUILayout.Label("Order bonus: 0 currency; deliveries earn sale income.");
                 GUILayout.Label(GetDemoGuidance());
             }
-            if (market.SeedShop?.Offers.Count > 0)
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Seeds")) section = MarketSection.Seeds;
+            if (GUILayout.Button("Sales")) section = MarketSection.Sales;
+            if (GUILayout.Button("History")) section = MarketSection.History;
+            GUILayout.EndHorizontal();
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+        }
+
+        private Rect GetDetailPanelRect() => new(16f,
+            Mathf.Max(16f, Screen.height - Mathf.Min(320f, Screen.height * 0.5f) - 72f),
+            Mathf.Min(310f, Screen.width - 32f),
+            Mathf.Min(320f, Screen.height * 0.5f));
+
+        private void DrawMarketDetail()
+        {
+            Rect rect = GetDetailPanelRect();
+            GUI.Box(rect, GUIContent.none);
+            GUILayout.BeginArea(new Rect(rect.x + 10f, rect.y + 8f,
+                rect.width - 20f, rect.height - 16f));
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Order")) section = MarketSection.Current;
+            if (GUILayout.Button("Seeds")) section = MarketSection.Seeds;
+            if (GUILayout.Button("Sales")) section = MarketSection.Sales;
+            if (GUILayout.Button("History")) section = MarketSection.History;
+            GUILayout.EndHorizontal();
+            detailScroll = GUILayout.BeginScrollView(detailScroll);
+            switch (section)
             {
-                foreach (SeedShopOffer offer in market.SeedShop.Offers)
-                    if (market.SeedShop.GetState(offer.CropId) == SeedShopOfferState.Affordable &&
-                        GUILayout.Button($"Buy {offer.DisplayName} ({offer.Price})"))
-                        market.SeedShop.TryPurchase(offer.CropId);
+                case MarketSection.Seeds:
+                    GUILayout.Label($"Seeds  |  {market.Currency} currency");
+                    foreach (SeedShopOffer offer in market.SeedShop.Offers)
+                    {
+                        SeedShopOfferState state = market.SeedShop.GetState(offer.CropId);
+                        string label = offer.DisplayName +
+                            (market.Unlocks.IsNew(UnlockKey.CropCategory, offer.CropId)
+                                ? "  NEW" : "");
+                        if (state == SeedShopOfferState.Affordable)
+                        {
+                            if (GUILayout.Button($"Buy {label} ({offer.Price})"))
+                                market.SeedShop.TryPurchase(offer.CropId);
+                        }
+                        else if (state == SeedShopOfferState.Locked)
+                            GUILayout.Label($"{label}: requires " +
+                                $"{offer.RequiredUnlock?.Id ?? "an unlock"}");
+                        else if (state == SeedShopOfferState.Available)
+                            GUILayout.Label($"{label}: need " +
+                                $"{Math.Max(0, offer.Price - market.Currency)} more coins");
+                        else GUILayout.Label($"{label}: {state}");
+                    }
+                    break;
+                case MarketSection.Sales:
+                    GUILayout.Label($"Currency: {market.Currency}");
+                    GUILayout.Label($"Total delivered: {market.Inventory.TotalDelivered}");
+                    foreach (var entry in market.Inventory.DeliveredCounts)
+                        GUILayout.Label($"{entry.Key.Id}: {entry.Value}");
+                    break;
+                case MarketSection.History:
+                    GUILayout.Label($"Completed: {market.CompletedOrders.Count} / {market.Orders.Count}");
+                    foreach (FoodOrder completed in market.CompletedOrders)
+                    {
+                        GUILayout.Label(completed.DisplayName);
+                        foreach (UnlockKey unlock in completed.Unlocks)
+                            GUILayout.Label($"  {unlock.Category}: {unlock.Id}");
+                    }
+                    foreach (FarmableRegion region in market.Regions.Regions)
+                        if (market.Regions.GetStatus(region.Id) == RegionStatus.Restored)
+                            GUILayout.Label($"Restored: {region.DisplayName}");
+                    break;
             }
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawWorldFeedback()
+        {
+            if (Camera.main == null) return;
+            if (Time.time < orderFeedbackUntil && objectiveAnchorValid)
+                GUI.Label(new Rect(objectiveAnchor.x - 90f, objectiveAnchor.y - 70f,
+                    180f, 22f), "Order complete!");
+            if (Time.time >= regionFeedbackUntil ||
+                string.IsNullOrEmpty(restoredRegionName)) return;
+            FarmableRegion region = market.Regions.Regions.FirstOrDefault(candidate =>
+                candidate.Id == restoredRegionName);
+            if (region == null) return;
+            Vector2Int cell = region.MinimumCell + region.Size / 2;
+            Vector3 screen = Camera.main.WorldToScreenPoint(
+                buildings.GridSystem.GridToWorld(cell));
+            if (screen.z > 0f)
+                GUI.Label(new Rect(screen.x - 95f, Screen.height - screen.y - 20f,
+                    190f, 24f), $"{region.DisplayName} restored!");
         }
 
         private void Start()
@@ -457,19 +561,46 @@ namespace FantasyShapez.Food
                 region.FarmableCellCount - used;
             GUILayout.Label($"Farmable cells: {region.FarmableCellCount} " +
                 $"({used} plots, {free} free)");
-            GUILayout.Label($"Price: {region.Price} currency");
-            GUILayout.Label(region.HasRequirement
-                ? $"Requires {region.RequiredUnlockCategory}: {region.RequiredUnlockId}"
-                : "Progression: none");
-            RegionPurchaseStatus status = market.Regions.GetPurchaseStatus(
-                region.Id, market.Currency);
-            GUILayout.Label($"Status: {status}");
-            if (status == RegionPurchaseStatus.Available &&
-                GUILayout.Button($"Purchase {region.DisplayName}"))
+            bool restored = market.Regions.GetStatus(region.Id) == RegionStatus.Restored;
+            bool progression = !region.HasRequirement ||
+                market.Unlocks.IsUnlocked(region.RequiredUnlockCategory,
+                    region.RequiredUnlockId);
+            bool adjacent = market.Regions.HasRestoredAdjacent(region.Id);
+            bool affordable = market.Currency >= region.Price;
+            if (restored) GUILayout.Label("Already restored");
+            else
             {
-                regionMessage = market.Regions.TryPurchase(region.Id, market.Inventory)
-                    ? $"{region.DisplayName} restored!"
-                    : "Purchase failed.";
+                GUILayout.Label($"{(progression ? "Ready" : "Missing")} progression: " +
+                    (region.HasRequirement ? region.RequiredUnlockId : "none"));
+                GUILayout.Label($"{(adjacent ? "Ready" : "Missing")}: adjacent restored land");
+                GUILayout.Label($"{(affordable ? "Affordable" : "Unaffordable")}: " +
+                    $"{market.Currency} / {region.Price} currency");
+                if (!progression)
+                    GUILayout.Label(region.Id == "East Field"
+                        ? "Complete the Vegetable Base order."
+                        : $"Unlock {region.RequiredUnlockId} first.");
+                if (!adjacent)
+                    GUILayout.Label("Restore an adjacent region first.");
+                if (!affordable)
+                    GUILayout.Label($"Need {region.Price - market.Currency} more coins. " +
+                        "Sell food at the Market.");
+                RegionPurchaseStatus status = market.Regions.GetPurchaseStatus(
+                    region.Id, market.Currency);
+                bool originalEnabled = GUI.enabled;
+                GUI.enabled = originalEnabled && status == RegionPurchaseStatus.Available;
+                if (GUILayout.Button($"Purchase {region.DisplayName} ({region.Price})"))
+                {
+                    if (market.Regions.TryPurchase(region.Id, market.Inventory))
+                    {
+                        restoredRegionName = region.Id;
+                        regionFeedbackUntil = Time.time + 3f;
+                        regionMessage = null;
+                        if (buildings?.IsFoodDemo == true) buildings.ClosePanel();
+                        else selectedRegionId = null;
+                    }
+                    else regionMessage = "Purchase failed.";
+                }
+                GUI.enabled = originalEnabled;
             }
             if (!string.IsNullOrEmpty(regionMessage)) GUILayout.Label(regionMessage);
             if (GUILayout.Button("Close"))
@@ -526,7 +657,7 @@ namespace FantasyShapez.Food
             }
             if (buildings != null)
             {
-                contentHeight += 130f;
+                contentHeight += buildings.IsFoodDemo ? 0f : 94f;
             }
             float height = Mathf.Min(contentHeight, Mathf.Max(16f, Screen.height * 0.5f));
             return new Rect(16f, Mathf.Max(16f, Screen.height - height - 16f),
