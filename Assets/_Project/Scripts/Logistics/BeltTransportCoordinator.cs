@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using FantasyShapez.Grid;
-using FantasyShapez.Food;
+using CozyFoodFactory.Grid;
+using CozyFoodFactory.Food;
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     [Serializable]
     public sealed class FoodVisualDefinition

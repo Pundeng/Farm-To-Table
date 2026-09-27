@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using FantasyShapez.Buildings;
+using CozyFoodFactory.Buildings;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     [Serializable]
     public sealed class ProgressionSaveData

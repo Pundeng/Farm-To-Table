@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     public sealed class BuildingPlacement
     {

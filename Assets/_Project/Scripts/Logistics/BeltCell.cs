@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     public sealed class BeltCell
     {
@@ -17,7 +17,7 @@ namespace FantasyShapez.Logistics
 
         public Vector2Int OutputCell => Cell + Direction.ToOffset();
 
-        public TransportedRune Item { get; private set; }
+        public TransportedItem Item { get; private set; }
 
         public bool HasItem => Item != null;
 
@@ -30,7 +30,7 @@ namespace FantasyShapez.Logistics
                 return false;
             }
 
-            Item = new TransportedRune(item, entryDirection);
+            Item = new TransportedItem(item, entryDirection);
             return true;
         }
 
@@ -42,12 +42,12 @@ namespace FantasyShapez.Logistics
                 throw new InvalidOperationException("Belt item cannot be restored.");
             }
 
-            var transported = new TransportedRune(item, entryDirection);
+            var transported = new TransportedItem(item, entryDirection);
             transported.RestoreProgress(progress);
             Item = transported;
         }
 
-        internal bool TryAccept(TransportedRune item, GridDirection entryDirection)
+        internal bool TryAccept(TransportedItem item, GridDirection entryDirection)
         {
             if (!CanAccept)
             {
@@ -64,9 +64,9 @@ namespace FantasyShapez.Logistics
             Item?.Advance(distance);
         }
 
-        internal TransportedRune TakeItem()
+        internal TransportedItem TakeItem()
         {
-            TransportedRune item = Item;
+            TransportedItem item = Item;
             Item = null;
             return item;
         }

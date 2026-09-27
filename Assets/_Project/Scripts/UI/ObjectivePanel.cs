@@ -1,9 +1,9 @@
-using FantasyShapez.Buildings;
-using FantasyShapez.Food;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Food;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace FantasyShapez.UI
+namespace CozyFoodFactory.UI
 {
     public sealed class ObjectivePanel : MonoBehaviour
     {

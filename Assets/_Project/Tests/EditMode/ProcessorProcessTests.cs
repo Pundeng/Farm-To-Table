@@ -1,13 +1,13 @@
 using System.Collections.Generic;
-using FantasyShapez.Buildings;
-using FantasyShapez.CameraControl;
-using FantasyShapez.Food;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.CameraControl;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 using NUnit.Framework;
 using UnityEngine;
-using FantasyShapez.Grid;
+using CozyFoodFactory.Grid;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class ProcessorProcessTests
     {

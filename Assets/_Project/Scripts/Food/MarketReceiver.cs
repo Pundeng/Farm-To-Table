@@ -1,8 +1,8 @@
 using System;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Logistics;
 using UnityEngine;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class MarketReceiver : IItemInputReceiver
     {

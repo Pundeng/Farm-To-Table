@@ -1,10 +1,10 @@
 using System;
 using System.Linq;
-using FantasyShapez.Buildings;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Logistics;
 using UnityEngine;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class Harvester : MonoBehaviour, IItemOutputSource
     {

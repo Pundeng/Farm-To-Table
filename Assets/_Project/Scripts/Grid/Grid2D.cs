@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace FantasyShapez.Grid
+namespace CozyFoodFactory.Grid
 {
     /// <summary>
     /// Converts between continuous world positions and integer grid cells.

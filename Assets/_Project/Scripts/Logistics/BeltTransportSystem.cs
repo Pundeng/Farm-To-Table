@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     public sealed class BeltTransportSystem
     {
@@ -181,7 +181,7 @@ namespace FantasyShapez.Logistics
 
             foreach ((BeltCell source, BeltCell destination) in beltTransfers)
             {
-                TransportedRune item = source.TakeItem();
+                TransportedItem item = source.TakeItem();
                 destination.TryAccept(item, source.Direction);
             }
 

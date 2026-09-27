@@ -44,7 +44,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2a1c5e0c017e48c899b7ff193f06dae0, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Buildings.PlacedBuilding
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Buildings.PlacedBuilding
 --- !u!114 &2003
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -56,6 +56,6 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: bbbf534f1552af24fb003484dd977c62, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Food.Harvester
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.Harvester
   harvestInterval: 1
   outputCapacity: 4

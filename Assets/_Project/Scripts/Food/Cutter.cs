@@ -1,9 +1,9 @@
 using System;
-using FantasyShapez.Buildings;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Logistics;
 using UnityEngine;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class Cutter : MonoBehaviour, IItemInputReceiver,
         IItemOutputPairSource

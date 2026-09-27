@@ -1,11 +1,11 @@
 using System;
 using System.Reflection;
-using FantasyShapez.Food;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class MarketDeliveryTests
     {

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     public interface IItemInputReceiver
     {

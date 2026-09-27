@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     [Serializable]
     public sealed class BuildingDefinition

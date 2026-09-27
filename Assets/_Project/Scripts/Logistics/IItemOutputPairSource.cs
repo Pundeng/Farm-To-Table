@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     // Both items leave together. The transport system owns the two-belt preflight.
     public interface IItemOutputPairSource

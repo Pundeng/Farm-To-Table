@@ -1,13 +1,13 @@
 using System.Reflection;
 using System.Collections.Generic;
 using System.Linq;
-using FantasyShapez.Buildings;
-using FantasyShapez.Logistics;
-using FantasyShapez.Food;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Logistics;
+using CozyFoodFactory.Food;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class GridOccupancyTests
     {
@@ -867,15 +867,15 @@ namespace FantasyShapez.Tests.EditMode
         public void SwitchingTools_RestoresEachToolsLastRotation()
         {
             var memory = new BuildingToolRotationMemory();
-            Assert.That(memory.Get(nameof(FantasyShapez.Food.Processor)),
+            Assert.That(memory.Get(nameof(CozyFoodFactory.Food.Processor)),
                 Is.EqualTo(BuildingRotation.Degrees0));
-            memory.Set(nameof(FantasyShapez.Food.Processor),
+            memory.Set(nameof(CozyFoodFactory.Food.Processor),
                 BuildingRotation.Degrees90);
-            memory.Set(nameof(FantasyShapez.Food.BasicMixer),
+            memory.Set(nameof(CozyFoodFactory.Food.BasicMixer),
                 BuildingRotation.Degrees270);
-            Assert.That(memory.Get(nameof(FantasyShapez.Food.Processor)),
+            Assert.That(memory.Get(nameof(CozyFoodFactory.Food.Processor)),
                 Is.EqualTo(BuildingRotation.Degrees90));
-            Assert.That(memory.Get(nameof(FantasyShapez.Food.BasicMixer)),
+            Assert.That(memory.Get(nameof(CozyFoodFactory.Food.BasicMixer)),
                 Is.EqualTo(BuildingRotation.Degrees270));
         }
     }
@@ -894,7 +894,7 @@ namespace FantasyShapez.Tests.EditMode
                 var definition = new BuildingDefinition();
                 Vector2Int footprint = definition.Footprint;
                 System.Type factory = typeof(BuildingDefinition).Assembly.GetType(
-                    "FantasyShapez.Buildings.BuildingVisualFactory");
+                    "CozyFoodFactory.Buildings.BuildingVisualFactory");
                 MethodInfo create = factory.GetMethod("Create",
                     BindingFlags.Public | BindingFlags.Static);
                 var fallback = (GameObject)create.Invoke(null,

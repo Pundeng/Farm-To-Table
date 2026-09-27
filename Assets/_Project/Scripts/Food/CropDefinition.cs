@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     [Serializable]
     public sealed class CropDefinition

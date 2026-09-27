@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-namespace FantasyShapez.Grid
+namespace CozyFoodFactory.Grid
 {
     [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
     public sealed class GridVisualization : MonoBehaviour

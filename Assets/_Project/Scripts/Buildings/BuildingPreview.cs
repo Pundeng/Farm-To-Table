@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using FantasyShapez.Grid;
+using CozyFoodFactory.Grid;
 using UnityEngine;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     public sealed class BuildingPreview : MonoBehaviour
     {

@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using FantasyShapez.Buildings;
-using FantasyShapez.Grid;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Grid;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class MarketPanel : MonoBehaviour
     {

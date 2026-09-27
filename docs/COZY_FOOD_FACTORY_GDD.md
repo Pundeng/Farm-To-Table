@@ -11,8 +11,8 @@
 **Supported playable scene:** `Demo.unity`. The former Fantasy Rune Factory
 `Prototype.unity` scene and rune gameplay were retired during Legacy Cleanup
 Phase 1. Shared grid, building, belt, item transport, and food save
-infrastructure remains; legacy transport and assembly names are deferred
-cleanup, not new gameplay requirements.
+infrastructure remains. Project namespace and assembly names do not define
+new gameplay requirements.
 
 ---
 

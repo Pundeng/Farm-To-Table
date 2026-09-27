@@ -215,7 +215,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 2d9c47a454044cc6ba56b85f99191999, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.CameraControl.FactoryCameraController
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.CameraControl.FactoryCameraController
   movementSpeed: 10
   zoomSpeed: 1.5
   minimumZoom: 3
@@ -311,7 +311,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3f3da99056f348018a408f447f1f7682, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Grid.GridSystem
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Grid.GridSystem
   cellSize: 1
   origin: {x: 0, y: 0}
 --- !u!1 &3000
@@ -415,7 +415,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ab366518f6b942cdae8e8447cc8b7945, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Grid.GridVisualization
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Grid.GridVisualization
   gridSystem: {fileID: 2002}
   targetCamera: {fileID: 1002}
   visibleCellPadding: 2
@@ -582,7 +582,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e82b94c690014bab967623f06029c4a3, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Grid.GridHoverHighlight
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Grid.GridHoverHighlight
   gridSystem: {fileID: 2002}
   targetCamera: {fileID: 1002}
   highlightColor: {r: 1, g: 0.78, b: 0.2, a: 1}
@@ -630,7 +630,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fa9df19650df486d90675a892fc0fbbf, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Buildings.BuildingPreview
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Buildings.BuildingPreview
   validColor: {r: 0.25, g: 0.9, b: 0.45, a: 0.55}
   invalidColor: {r: 0.95, g: 0.25, b: 0.25, a: 0.55}
 --- !u!1 &6000
@@ -681,7 +681,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 087aeb4ec60744229297f38f380e84fc, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Buildings.BuildingPlacementController
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Buildings.BuildingPlacementController
   gridSystem: {fileID: 2002}
   hoverHighlight: {fileID: 4003}
   placementPreview: {fileID: 5002}
@@ -803,7 +803,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 31bda8e8579bb3544ad41a20f88aa262, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Logistics.BeltPlacementBehavior
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Logistics.BeltPlacementBehavior
   transportCoordinator: {fileID: 362208087}
 --- !u!114 &6008
 MonoBehaviour:
@@ -816,7 +816,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f9b3ef1b4ddd4f4b8e167f83feddb8cc, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Food.FarmPlotPlacementBehavior
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.FarmPlotPlacementBehavior
 --- !u!114 &6009
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -828,7 +828,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b8d0770cfc8336244af681c204a9a511, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Food.HarvesterPlacementBehavior
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.HarvesterPlacementBehavior
   transportCoordinator: {fileID: 362208087}
 --- !u!114 &6010
 MonoBehaviour:
@@ -841,7 +841,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 104e3784c84a46a78d0301c877863396, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.UI.RecipeDiscoveryPanel
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.UI.RecipeDiscoveryPanel
 --- !u!114 &6011
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -853,7 +853,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04a437939d932cc4da7306bf57a2ec07, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.UI.ObjectivePanel
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.UI.ObjectivePanel
 --- !u!1 &362208086
 GameObject:
   m_ObjectHideFlags: 0
@@ -882,7 +882,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: acc71ebc5d8f3064982163180192d37d, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Logistics.BeltTransportCoordinator
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Logistics.BeltTransportCoordinator
   gridSystem: {fileID: 2002}
   movementSpeed: 1
 --- !u!4 &362208088
@@ -944,7 +944,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 41f10a6203c949f1841e527352a6e287, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Food.Market
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.Market
   transportCoordinator: {fileID: 362208087}
   inputCell: {x: 10, y: 4}
   lastDeliveryDebug:
@@ -1074,7 +1074,7 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0d9c85675e37461c81ed3c35b9b5c38e, type: 3}
   m_Name:
-  m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.Food.MarketPanel
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.MarketPanel
   market: {fileID: 200000002}
   buildings: {fileID: 6002}
 --- !u!1660057539 &9223372036854775807

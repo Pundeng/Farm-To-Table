@@ -1,4 +1,4 @@
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     public interface IBuildingRemovalRule
     {
@@ -10,6 +10,5 @@ namespace FantasyShapez.Buildings
         bool CanMove { get; }
 
         void DetachForMove();
-        void ReattachAfterFailedMove();
     }
 }

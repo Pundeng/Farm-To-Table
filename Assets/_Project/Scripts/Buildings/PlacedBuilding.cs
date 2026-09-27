@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     public sealed class PlacedBuilding : MonoBehaviour
     {

@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     public enum BuildingRotation
     {

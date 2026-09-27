@@ -1,11 +1,11 @@
 using System.Collections.Generic;
-using FantasyShapez.Buildings;
-using FantasyShapez.Logistics;
-using FantasyShapez.Food;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Logistics;
+using CozyFoodFactory.Food;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class BeltTransportTests
     {
