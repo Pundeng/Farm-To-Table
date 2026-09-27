@@ -19,6 +19,7 @@ namespace FantasyShapez.Food
         public string activeOrderId;
         public SavedDelivery[] activeProgress;
         public SavedUnlock[] unlocks;
+        public SavedUnlock[] unseenUnlocks;
         public string[] purchasedCropIds;
         public SavedRecipe[] discoveries;
         public FactoryWorldData world;
@@ -318,6 +319,10 @@ namespace FantasyShapez.Food
                 {
                     category = key.Category, id = key.Id
                 }).ToArray(),
+                unseenUnlocks = unlocks.Unseen.Select(key => new SavedUnlock
+                {
+                    category = key.Category, id = key.Id
+                }).ToArray(),
                 purchasedCropIds = shop.PurchasedCropIds.ToArray(),
                 discoveries = discoveries.DiscoveredRecipes.Select(recipe => new SavedRecipe
                 {
@@ -430,6 +435,18 @@ namespace FantasyShapez.Food
                 unlocks.Add(key);
             }
 
+            var unseenUnlocks = new List<UnlockKey>();
+            var uniqueUnseen = new HashSet<UnlockKey>();
+            foreach (SavedUnlock saved in data.unseenUnlocks ?? Array.Empty<SavedUnlock>())
+            {
+                var key = new UnlockKey(saved?.category, saved?.id);
+                if (!uniqueUnlocks.Contains(key) ||
+                    key.Category is not (UnlockKey.MachineCategory or UnlockKey.CropCategory) ||
+                    !uniqueUnseen.Add(key))
+                    throw new ArgumentException("Invalid unseen unlock.");
+                unseenUnlocks.Add(key);
+            }
+
             foreach (FoodOrder order in authoredOrders.Take(completedCount))
             {
                 if (order.Unlocks.Any(key => !uniqueUnlocks.Contains(key)))
@@ -485,6 +502,7 @@ namespace FantasyShapez.Food
 
             inventory.Restore(data.currency, deliveries);
             this.unlocks.Restore(unlocks);
+            this.unlocks.RestoreUnseen(unseenUnlocks);
             shop.RestorePurchases(purchases);
             orders.Restore(completedCount, progress);
             this.discoveries.Restore(discoveries);
@@ -559,9 +577,16 @@ namespace FantasyShapez.Food
         private static ProgressionSaveData pending;
         private static bool rollingBack;
         private static int sceneIndex;
+        private static string pendingFeedback;
 
         public static bool IsReconstructing { get; private set; }
         public static string LastMessage { get; private set; }
+        public static string ConsumeFeedback()
+        {
+            string message = pendingFeedback;
+            pendingFeedback = null;
+            return message;
+        }
 
         public static bool TryBegin(ProgressionSaveData data, out string error)
         {
@@ -621,6 +646,7 @@ namespace FantasyShapez.Food
                 saves.ApplySnapshot(pending);
                 buildings.RestoreWorldSnapshot(pending.world, pending.unlocks);
                 LastMessage = "Factory and progression loaded.";
+                pendingFeedback = LastMessage;
                 pending = null;
                 SceneManager.sceneLoaded -= OnSceneLoaded;
                 IsReconstructing = false;
@@ -629,6 +655,7 @@ namespace FantasyShapez.Food
             {
                 LastMessage = $"Factory load failed: {exception.Message} " +
                     "Reloading a clean scene.";
+                pendingFeedback = LastMessage;
                 Debug.LogError(LastMessage);
                 pending = null;
                 rollingBack = true;

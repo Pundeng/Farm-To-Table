@@ -100,6 +100,82 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
+        public void RegionRequirementsRemainIndependentlyInspectable()
+        {
+            var unlocks = new UnlockState();
+            var starter = new FarmableRegion("Starter", "Starter",
+                Vector2Int.zero, Vector2Int.one, true);
+            var east = new FarmableRegion("East", "East",
+                Vector2Int.right, Vector2Int.one, false,
+                new UnlockKey(UnlockKey.RegionAccessCategory, "East"), price: 5);
+            var far = new FarmableRegion("Far", "Far",
+                new Vector2Int(3, 0), Vector2Int.one, false);
+            var regions = new RegionState(new[] { starter, east, far }, unlocks);
+            Assert.That(regions.HasRestoredAdjacent("East"), Is.True);
+            Assert.That(regions.GetPurchaseStatus("East", 0),
+                Is.EqualTo(RegionPurchaseStatus.ProgressionLocked));
+            unlocks.Grant(new UnlockKey(UnlockKey.RegionAccessCategory, "East"));
+            Assert.That(regions.GetPurchaseStatus("East", 0),
+                Is.EqualTo(RegionPurchaseStatus.Unaffordable));
+            Assert.That(regions.HasRestoredAdjacent("Far"), Is.False);
+            Assert.That(regions.GetPurchaseStatus("Far", 10),
+                Is.EqualTo(RegionPurchaseStatus.NotAdjacent));
+        }
+
+        [Test]
+        public void CompletionPresentationSnapshotsOnlyNewRewardsBeforeNextOrder()
+        {
+            var receiver = new MarketReceiver(Vector2Int.zero, new MarketInventory());
+            var unlocks = new UnlockState();
+            unlocks.Grant(new UnlockKey(UnlockKey.CropCategory, "Onion"));
+            var first = new FoodOrder("first", "First",
+                new[] { new FoodOrderRequirement(Apple, 1) },
+                new[] { new UnlockKey(UnlockKey.CropCategory, "Onion"),
+                    new UnlockKey(UnlockKey.MachineCategory, "Processor") });
+            var second = new FoodOrder("second", "Second",
+                new[] { new FoodOrderRequirement(DriedApple, 1) },
+                Array.Empty<UnlockKey>());
+            using var sequence = new FoodOrderSequence(new[] { first, second },
+                receiver, unlocks);
+            OrderCompletionPresentation card = null;
+            int count = 0;
+            bool grantWasInsideCompletion = false;
+            unlocks.UnlockedContent += key =>
+            {
+                if (key.Id == "Processor")
+                    grantWasInsideCompletion = sequence.IsCompleting;
+            };
+            sequence.CompletedWithRewards += (order, granted) =>
+            {
+                card = new OrderCompletionPresentation(order, granted);
+                count++;
+            };
+
+            receiver.TryAcceptItem(Apple, GridDirection.East);
+            Assert.That(card.Order, Is.SameAs(first));
+            Assert.That(card.GrantedUnlocks, Has.Count.EqualTo(1));
+            Assert.That(card.GrantedUnlocks[0].Id, Is.EqualTo("Processor"));
+            Assert.That(card.CurrencyBonus, Is.Zero);
+            Assert.That(grantWasInsideCompletion, Is.True);
+            Assert.That(sequence.IsCompleting, Is.False);
+            Assert.That(sequence.ActiveOrder.Order, Is.SameAs(second));
+            Assert.That(count, Is.EqualTo(1));
+        }
+
+        [Test]
+        public void NewUnlockClearsOnlyWhenThatSpecificContentIsSelected()
+        {
+            var unlocks = new UnlockState();
+            unlocks.Grant(new UnlockKey(UnlockKey.CropCategory, "Onion"));
+            unlocks.Grant(new UnlockKey(UnlockKey.MachineCategory, "Processor"));
+            Assert.That(unlocks.IsNew(UnlockKey.CropCategory, "Onion"), Is.True);
+            Assert.That(unlocks.MarkSeen(UnlockKey.MachineCategory, "Processor"), Is.True);
+            Assert.That(unlocks.IsNew(UnlockKey.CropCategory, "Onion"), Is.True);
+            Assert.That(unlocks.IsNew(UnlockKey.MachineCategory, "Processor"), Is.False);
+            Assert.That(unlocks.MarkSeen(UnlockKey.MachineCategory, "Processor"), Is.False);
+        }
+
+        [Test]
         public void OrdersRequiringSameFood_NeedSeparateDeliveries()
         {
             var receiver = new MarketReceiver(Vector2Int.zero, new MarketInventory());

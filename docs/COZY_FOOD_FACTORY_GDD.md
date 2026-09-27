@@ -149,8 +149,9 @@ Legacy rune state is not part of the new food game
 design and must not be silently discarded by a prototype save.
 
 The belt-reconstruction item deletion rule below applies when a player rebuilds a
-belt, not when a snapshot is captured or restored. Save slots, autosave timing, and the final
-world-loading UX remain TBD.
+belt, not when a snapshot is captured or restored. The Demo System Menu owns manual
+Save Game and confirmed Load Game; the saved-data summary reads the stored file, not
+the live session. Multiple slots and autosave timing remain TBD.
 
 ## 3.2 Expansion
 
@@ -891,11 +892,22 @@ The exact palette, sprite resolution, animation style, and asset pipeline are TB
 - Blocked output ports display red warnings.
 - Incorrect ingredients can be discarded.
 - New recipe discoveries trigger popup animations.
+- The Demo keeps order progress attached to the Market. Clicking it opens a compact
+  current-order popover with separate Seeds, Sales, and History detail views.
+- Each completed order shows one dismissible card with its requirements, actual
+  order bonus, and newly granted unlocks. Delivery sale income remains a Toast;
+  the same order unlocks are not repeated as Toasts.
+- Newly unlocked buildings and crops show NEW until that exact item is selected.
+  The first selection gives brief usage guidance, also available through Help.
+- Region purchase feedback shows progression, adjacency, and currency conditions
+  together, with actionable guidance for each unmet condition.
+- Save and Load live in the Demo System Menu. Load and Quit require confirmation
+  because unsaved progress may be lost. The menu shows stored-save metadata only.
 
 ## Unresolved UX Features
 
-- Machine rotation controls
-- Pipe placement controls
+- Final machine rotation affordances
+- Final pipe placement presentation
 - Machine buffer clearing interface
 - Recipe journal layout
 - Building previews

@@ -123,6 +123,31 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
+        public void UnseenUnlocksRoundTripAndOldSaveDoesNotInventNewBadges()
+        {
+            using var source = new Session();
+            source.Receiver.TryAcceptItem(source.Apple, GridDirection.East);
+            source.Receiver.TryAcceptItem(source.Apple, GridDirection.East);
+            Assert.That(source.Unlocks.IsNew(UnlockKey.CropCategory, "Onion"), Is.True);
+            string json = source.Saves.ToJson();
+            using var restored = new Session();
+            Assert.That(restored.Saves.TryLoadJson(json, out string error), Is.True, error);
+            Assert.That(restored.Unlocks.IsNew(UnlockKey.CropCategory, "Onion"), Is.True);
+            restored.Unlocks.MarkSeen(UnlockKey.CropCategory, "Onion");
+            string viewedJson = restored.Saves.ToJson();
+            using var viewed = new Session();
+            Assert.That(viewed.Saves.TryLoadJson(viewedJson, out error), Is.True, error);
+            Assert.That(viewed.Unlocks.IsNew(UnlockKey.CropCategory, "Onion"), Is.False);
+
+            var oldData = JsonUtility.FromJson<ProgressionSaveData>(json);
+            oldData.unseenUnlocks = null;
+            using var oldSave = new Session();
+            Assert.That(oldSave.Saves.TryLoadJson(JsonUtility.ToJson(oldData),
+                out error), Is.True, error);
+            Assert.That(oldSave.Unlocks.IsNew(UnlockKey.CropCategory, "Onion"), Is.False);
+        }
+
+        [Test]
         public void InvalidOrMissingSave_LeavesLiveProgressionUntouched()
         {
             using var session = new Session();

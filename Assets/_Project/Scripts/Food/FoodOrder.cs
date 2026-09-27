@@ -45,6 +45,7 @@ namespace FantasyShapez.Food
     {
         private readonly HashSet<UnlockKey> unlocked = new();
         private readonly List<UnlockKey> ordered = new();
+        private readonly HashSet<UnlockKey> unseen = new();
         private readonly IReadOnlyList<UnlockKey> readOnlyOrdered;
 
         public UnlockState()
@@ -53,6 +54,7 @@ namespace FantasyShapez.Food
         }
 
         public IReadOnlyList<UnlockKey> Unlocked => readOnlyOrdered;
+        public IReadOnlyCollection<UnlockKey> Unseen => unseen;
         public event Action<UnlockKey> UnlockedContent;
         public event Action Restored;
 
@@ -74,8 +76,29 @@ namespace FantasyShapez.Food
             }
 
             ordered.Add(key);
+            if (key.Category is UnlockKey.MachineCategory or UnlockKey.CropCategory)
+                unseen.Add(key);
             UnlockedContent?.Invoke(key);
             return true;
+        }
+
+        public bool IsNew(string category, string id) =>
+            unseen.Contains(new UnlockKey(category, id));
+
+        public bool MarkSeen(string category, string id) =>
+            unseen.Remove(new UnlockKey(category, id));
+
+        public void RestoreUnseen(IReadOnlyList<UnlockKey> keys)
+        {
+            unseen.Clear();
+            if (keys == null) return;
+            foreach (UnlockKey key in keys)
+            {
+                if (!unlocked.Contains(key) ||
+                    key.Category is not (UnlockKey.MachineCategory or UnlockKey.CropCategory) ||
+                    !unseen.Add(key))
+                    throw new ArgumentException("Invalid unseen unlock.", nameof(keys));
+            }
         }
 
         public void Restore(IReadOnlyList<UnlockKey> keys)
@@ -98,6 +121,7 @@ namespace FantasyShapez.Food
 
             unlocked.Clear();
             ordered.Clear();
+            unseen.Clear();
             foreach (UnlockKey key in keys)
             {
                 unlocked.Add(key);
@@ -300,6 +324,8 @@ namespace FantasyShapez.Food
         public IReadOnlyList<FoodOrder> CompletedOrders => readOnlyCompleted;
         public FoodOrderProgress ActiveOrder { get; private set; }
         public event Action<FoodOrder> Completed;
+        public event Action<FoodOrder, IReadOnlyList<UnlockKey>> CompletedWithRewards;
+        public bool IsCompleting { get; private set; }
 
         public void Dispose()
         {
@@ -345,17 +371,22 @@ namespace FantasyShapez.Food
 
         private void OnOrderCompleted(FoodOrder order)
         {
-            ActiveOrder.Completed -= OnOrderCompleted;
-            ActiveOrder.Dispose();
-            ActiveOrder = null;
-            completed.Add(order);
-            foreach (UnlockKey unlock in order.Unlocks)
+            IsCompleting = true;
+            var granted = new List<UnlockKey>();
+            try
             {
-                unlocks.Grant(unlock);
-            }
+                ActiveOrder.Completed -= OnOrderCompleted;
+                ActiveOrder.Dispose();
+                ActiveOrder = null;
+                completed.Add(order);
+                foreach (UnlockKey unlock in order.Unlocks)
+                    if (unlocks.Grant(unlock)) granted.Add(unlock);
 
-            activeIndex++;
-            ActivateNext();
+                activeIndex++;
+                ActivateNext();
+            }
+            finally { IsCompleting = false; }
+            CompletedWithRewards?.Invoke(order, granted.AsReadOnly());
             Completed?.Invoke(order);
         }
 
@@ -369,5 +400,21 @@ namespace FantasyShapez.Food
             ActiveOrder = new FoodOrderProgress(orders[activeIndex], receiver);
             ActiveOrder.Completed += OnOrderCompleted;
         }
+    }
+
+    public sealed class OrderCompletionPresentation
+    {
+        public OrderCompletionPresentation(FoodOrder order,
+            IReadOnlyList<UnlockKey> grantedUnlocks)
+        {
+            Order = order ?? throw new ArgumentNullException(nameof(order));
+            GrantedUnlocks = new List<UnlockKey>(grantedUnlocks ??
+                throw new ArgumentNullException(nameof(grantedUnlocks))).AsReadOnly();
+        }
+
+        public FoodOrder Order { get; }
+        public IReadOnlyList<UnlockKey> GrantedUnlocks { get; }
+        // Deliveries already earn their sale value; orders grant no bonus currency.
+        public long CurrencyBonus => 0;
     }
 }

@@ -54,6 +54,7 @@ namespace FantasyShapez.Food
             orderSequence = new FoodOrderSequence(orders, receiver, unlocks);
             seedShop = new SeedShop(seedOffers, receiver.Inventory, unlocks);
             regions = new RegionState(farmableRegions, unlocks);
+            unlocks.RestoreUnseen(Array.Empty<UnlockKey>());
             transportCoordinator.RegisterInputReceiver(receiver);
             CreatePlaceholderVisual();
         }

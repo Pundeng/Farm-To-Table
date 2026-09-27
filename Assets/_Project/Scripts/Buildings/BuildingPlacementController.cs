@@ -80,6 +80,12 @@ namespace FantasyShapez.Buildings
         private readonly Dictionary<BuildingPlacement, PlacedBuilding> buildingInstances = new();
         private readonly Dictionary<BuildingPlacement, MachineFeedbackView> feedbackViews = new();
         private readonly EventToastQueue toasts = new();
+        private readonly Queue<OrderCompletionPresentation> completionCards = new();
+        private OrderCompletionPresentation activeCompletionCard;
+        private string contextualGuidance;
+        private float guidanceUntil;
+        private bool loadConfirmationOpen;
+        private bool quitConfirmationOpen;
         private readonly BeltDragPlacementPlanner beltDragPlanner = new();
         private readonly GridDragTracker placementDrag = new();
         private readonly GridDragTracker removalDrag = new();
@@ -100,6 +106,7 @@ namespace FantasyShapez.Buildings
         private FarmPlot cropPickerPlot;
         private string rememberedFarmCropId;
         private Vector2 buildMenuScroll;
+        private Vector2 helpScroll;
         private static readonly string[] HotbarBuildingIds =
         {
             nameof(FarmPlot), nameof(Belt), nameof(Harvester),
@@ -143,7 +150,8 @@ namespace FantasyShapez.Buildings
         public bool IsSystemMenuOpen => systemMenuOpen;
         public bool IsDevInspectorOpen => devInspectorOpen;
         public bool BlocksAllWorldInput => foodDemoControls &&
-            (systemMenuOpen || recipeDiscoveryPanel?.HasModal == true);
+            (systemMenuOpen || activeCompletionCard != null ||
+             recipeDiscoveryPanel?.HasModal == true);
         public void OpenPanel(DemoPanel panel)
         {
             if (!foodDemoControls) return;
@@ -154,6 +162,7 @@ namespace FantasyShapez.Buildings
             { ClosePanel(); return; }
             ClosePanel();
             demoPanel = panel;
+            if (panel == DemoPanel.Market) marketPanel?.OpenCurrentOrder();
             if (panel == DemoPanel.Property && propertySupply?.IsVisible == false)
                 propertySupply.TogglePanel();
         }
@@ -384,14 +393,22 @@ namespace FantasyShapez.Buildings
         {
             placementPreview.Hide();
             if (!foodDemoControls || market == null) return;
-            market.OrderSequence.Completed += OnOrderCompleted;
+            market.OrderSequence.CompletedWithRewards += OnOrderCompleted;
             market.Unlocks.UnlockedContent += OnContentUnlocked;
             market.FoodDelivered += OnFoodDelivered;
             if (marketPanel != null) marketPanel.GameSaved += OnGameSaved;
+            string loadFeedback = FactoryWorldLoadSession.ConsumeFeedback();
+            if (!string.IsNullOrEmpty(loadFeedback))
+                toasts.Enqueue(loadFeedback, Time.time);
         }
 
-        private void OnOrderCompleted(FoodOrder order) =>
-            toasts.Enqueue($"Order complete: {order.DisplayName}", Time.time);
+        private void OnOrderCompleted(FoodOrder order,
+            IReadOnlyList<UnlockKey> granted)
+        {
+            completionCards.Enqueue(new OrderCompletionPresentation(order, granted));
+            if (activeCompletionCard == null) activeCompletionCard = completionCards.Dequeue();
+            marketPanel?.ShowOrderCompletion();
+        }
 
         private void OnContentUnlocked(UnlockKey unlock)
         {
@@ -409,7 +426,8 @@ namespace FantasyShapez.Buildings
                 UnlockKey.RegionCategory => $"{name} restored",
                 _ => null
             };
-            if (message != null) toasts.Enqueue(message, Time.time);
+            if (message != null && market.OrderSequence?.IsCompleting != true)
+                toasts.Enqueue(message, Time.time);
         }
 
         private void OnFoodDelivered(FoodItemData food, int count) =>
@@ -1372,7 +1390,7 @@ namespace FantasyShapez.Buildings
             if (foodDemoControls && market != null)
             {
                 if (market.OrderSequence != null)
-                    market.OrderSequence.Completed -= OnOrderCompleted;
+                    market.OrderSequence.CompletedWithRewards -= OnOrderCompleted;
                 market.Unlocks.UnlockedContent -= OnContentUnlocked;
                 market.FoodDelivered -= OnFoodDelivered;
                 if (marketPanel != null) marketPanel.GameSaved -= OnGameSaved;
@@ -1937,6 +1955,10 @@ namespace FantasyShapez.Buildings
             }
 
             constructionMessage = null;
+            string buildingId = buildingOptions[index].Definition.Id;
+            if (foodDemoControls && market?.Unlocks.MarkSeen(
+                    UnlockKey.MachineCategory, buildingId) == true)
+                ShowContextualGuidance(GetBuildingGuidance(buildingId));
 
             selectedBuildingIndex = index;
             if (foodDemoControls)
@@ -1955,6 +1977,16 @@ namespace FantasyShapez.Buildings
 
         private bool HandleDemoEscape()
         {
+            if (activeCompletionCard != null)
+            {
+                ContinueAfterOrder();
+                return true;
+            }
+            if (loadConfirmationOpen || quitConfirmationOpen)
+            {
+                loadConfirmationOpen = quitConfirmationOpen = false;
+                return true;
+            }
             DemoEscapeAction action = DemoEscapePriority.Choose(
                 recipeDiscoveryPanel?.HasModal == true, systemMenuOpen,
                 demoPanel != DemoPanel.None || cropPickerPlot != null,
@@ -2136,11 +2168,16 @@ namespace FantasyShapez.Buildings
                 if (crop == null) continue;
                 bool wasEnabled = GUI.enabled;
                 GUI.enabled = wasEnabled && cropPickerPlot.IsCropUnlocked(crop);
+                string cropLabel = crop.Id +
+                    (market?.Unlocks.IsNew(UnlockKey.CropCategory, crop.Id) == true
+                        ? "  NEW" : "");
                 if (GUI.Button(new Rect(rect.x + 8f, rect.y + 30f + index * 27f,
-                        rect.width - 16f, 24f), crop.Id))
+                        rect.width - 16f, 24f), cropLabel))
                 {
                     cropPickerPlot.SelectCrop(crop);
                     rememberedFarmCropId = crop.Id;
+                    if (market?.Unlocks.MarkSeen(UnlockKey.CropCategory, crop.Id) == true)
+                        ShowContextualGuidance($"Grow {crop.Id} in a Farm Plot, then collect it with a Harvester.");
                     cropPickerPlot = null;
                     GUI.enabled = wasEnabled;
                     break;
@@ -2218,6 +2255,10 @@ namespace FantasyShapez.Buildings
                 GUI.Box(new Rect(cell.center.x - 13f, cell.y + 17f, 26f, 22f),
                     option.Definition.Id.Substring(0, 2).ToUpperInvariant());
                 GUI.backgroundColor = originalColor;
+                if (market.Unlocks.IsNew(UnlockKey.MachineCategory,
+                        option.Definition.Id))
+                    GUI.Label(new Rect(cell.x + 17f, cell.y, cell.width - 18f, 18f),
+                        "NEW");
                 if (isPlacementModeActive && selectedBuildingIndex == optionIndex)
                     GUI.Box(new Rect(cell.x, cell.y, cell.width, 3f), GUIContent.none);
             }
@@ -2235,6 +2276,9 @@ namespace FantasyShapez.Buildings
             else if (!string.IsNullOrEmpty(constructionMessage))
                 GUI.Label(new Rect(hotbar.x, hotbar.y - 42f, hotbar.width, 40f),
                     constructionMessage);
+            if (Time.time < guidanceUntil && !string.IsNullOrEmpty(contextualGuidance))
+                GUI.Box(new Rect(hotbar.x, hotbar.y - 96f, hotbar.width, 48f),
+                    contextualGuidance);
 
             Rect utility = UtilityRect;
             if (GUI.Button(new Rect(utility.x, utility.y, 46f, 38f), "Recipe"))
@@ -2254,8 +2298,14 @@ namespace FantasyShapez.Buildings
             GUI.enabled = previousEnabled;
             if (systemMenuOpen)
             {
-                GUI.enabled = previousEnabled && recipeDiscoveryPanel?.HasModal != true;
+                GUI.enabled = previousEnabled && recipeDiscoveryPanel?.HasModal != true &&
+                    activeCompletionCard == null;
                 DrawSystemMenu();
+            }
+            if (activeCompletionCard != null)
+            {
+                GUI.enabled = previousEnabled;
+                DrawOrderCompletionCard();
             }
             if (devInspectorOpen)
                 GUI.Box(new Rect(Mathf.Max(8f, Screen.width - 224f), 8f, 216f, 116f),
@@ -2309,7 +2359,10 @@ namespace FantasyShapez.Buildings
                 bool locked = IsMachineLocked(option);
                 bool enabled = GUI.enabled;
                 GUI.enabled = enabled && !locked;
-                if (GUILayout.Button(option.Definition.Id)) SelectBuilding(index);
+                string label = option.Definition.Id +
+                    (market.Unlocks.IsNew(UnlockKey.MachineCategory,
+                        option.Definition.Id) ? "  NEW" : "");
+                if (GUILayout.Button(label)) SelectBuilding(index);
                 GUI.enabled = enabled;
                 if (locked) GUILayout.Label($"Requires {GetMachineUnlockRequirement(option)}");
             }
@@ -2325,12 +2378,19 @@ namespace FantasyShapez.Buildings
             GUI.Box(rect, GUIContent.none);
             GUILayout.BeginArea(new Rect(rect.x + 10f, rect.y + 8f,
                 rect.width - 20f, rect.height - 16f));
+            helpScroll = GUILayout.BeginScrollView(helpScroll);
             GUILayout.Label("Help");
             GUILayout.Label("Choose a building from the hotbar or Build Menu.");
             GUILayout.Label("R rotates. Esc or Right Click cancels the current tool.");
             GUILayout.Label("Right Click removes a building; hold and drag to remove more.");
             GUILayout.Label("Shift drag selects; Ctrl+C copies, Ctrl+V pastes, Ctrl+X cuts.");
             GUILayout.Label("Click Market to view the current order.");
+            GUILayout.Label("NEW clears when you select that machine or crop.");
+            GUILayout.Label("Select a new crop in a Farm Plot, then collect it with a Harvester.");
+            GUILayout.Label(GetBuildingGuidance(nameof(Processor)));
+            GUILayout.Label(GetBuildingGuidance(nameof(BasicMixer)));
+            GUILayout.Label(GetBuildingGuidance(nameof(Cutter)));
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 
@@ -2341,17 +2401,74 @@ namespace FantasyShapez.Buildings
             GUILayout.BeginArea(new Rect(rect.x + 12f, rect.y + 10f,
                 rect.width - 24f, rect.height - 20f));
             GUILayout.Label("SYSTEM");
-            if (GUILayout.Button("Resume")) systemMenuOpen = false;
-            if (GUILayout.Button("Save")) marketPanel?.SaveGame();
-            if (GUILayout.Button("Load")) marketPanel?.LoadGame();
-            GUI.enabled = false;
-            GUILayout.Button("Settings");
-            GUI.enabled = true;
-            if (GUILayout.Button("Quit")) Application.Quit();
+            if (loadConfirmationOpen || quitConfirmationOpen)
+            {
+                GUILayout.Label(loadConfirmationOpen
+                    ? "Load saved game? Unsaved progress may be lost."
+                    : "Quit? Unsaved progress may be lost.");
+                if (GUILayout.Button("Cancel"))
+                    loadConfirmationOpen = quitConfirmationOpen = false;
+                if (GUILayout.Button(loadConfirmationOpen ? "Confirm Load" : "Confirm Quit"))
+                {
+                    if (loadConfirmationOpen)
+                    {
+                        if (marketPanel?.LoadGame() == true) systemMenuOpen = false;
+                    }
+                    else Application.Quit();
+                    loadConfirmationOpen = quitConfirmationOpen = false;
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("Resume")) systemMenuOpen = false;
+                if (GUILayout.Button("Save Game") && marketPanel?.SaveGame() == true)
+                    systemMenuOpen = false;
+                if (GUILayout.Button("Load Game")) loadConfirmationOpen = true;
+                GUILayout.Label("Settings: no configurable options yet.");
+                if (GUILayout.Button("Quit")) quitConfirmationOpen = true;
+                GUILayout.Label("SAVE DATA");
+                GUILayout.Label(marketPanel?.GetSaveSummary() ?? "No save data available.");
+            }
             if (!string.IsNullOrEmpty(marketPanel?.SaveMessage))
                 GUILayout.Label(marketPanel.SaveMessage);
             GUILayout.EndArea();
         }
+
+        private void DrawOrderCompletionCard()
+        {
+            Rect rect = new((Screen.width - 360f) * 0.5f,
+                (Screen.height - 250f) * 0.5f, 360f, 250f);
+            GUI.Box(rect, GUIContent.none);
+            GUILayout.BeginArea(new Rect(rect.x + 14f, rect.y + 12f,
+                rect.width - 28f, rect.height - 24f));
+            GUILayout.Label($"ORDER COMPLETE: {activeCompletionCard.Order.DisplayName}");
+            foreach (FoodOrderRequirement requirement in activeCompletionCard.Order.Requirements)
+                GUILayout.Label($"{requirement.Quantity} {requirement.Food.Id}");
+            GUILayout.Label("Order bonus: 0 currency (delivery sales credited separately)");
+            foreach (UnlockKey unlock in activeCompletionCard.GrantedUnlocks)
+                GUILayout.Label($"Unlocked {unlock.Category}: {unlock.Id}");
+            if (activeCompletionCard.GrantedUnlocks.Count == 0)
+                GUILayout.Label("No new unlocks.");
+            if (GUILayout.Button("Continue")) ContinueAfterOrder();
+            GUILayout.EndArea();
+        }
+
+        private void ContinueAfterOrder() => activeCompletionCard =
+            completionCards.Count > 0 ? completionCards.Dequeue() : null;
+
+        private void ShowContextualGuidance(string message)
+        {
+            contextualGuidance = message;
+            guidanceUntil = Time.time + 6f;
+        }
+
+        private static string GetBuildingGuidance(string id) => id switch
+        {
+            nameof(Processor) => "Processor: feed food from the west and pipe a property to the south port.",
+            nameof(BasicMixer) => "Mixer: feed its two west inputs on separate belts and collect the east output.",
+            nameof(Cutter) => "Cutter: feed its rear input and connect both output belts.",
+            _ => $"Select {id}, choose a valid cell, and place it on the map."
+        };
 
         private static int GetConstructionCategory(string id) => id switch
         {

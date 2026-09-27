@@ -198,20 +198,19 @@ namespace FantasyShapez.Food
             RegionStatus status = GetStatus(regionId);
             if (status == RegionStatus.Restored) return RegionPurchaseStatus.Restored;
             if (status == RegionStatus.Locked) return RegionPurchaseStatus.ProgressionLocked;
-            FarmableRegion candidate = regionsById[regionId];
-            bool adjacent = false;
-            foreach (FarmableRegion region in regions)
-            {
-                if (GetStatus(region.Id) == RegionStatus.Restored &&
-                    candidate.SharesEdge(region))
-                {
-                    adjacent = true;
-                    break;
-                }
-            }
-            if (!adjacent) return RegionPurchaseStatus.NotAdjacent;
-            return currency < candidate.Price ? RegionPurchaseStatus.Unaffordable :
+            if (!HasRestoredAdjacent(regionId)) return RegionPurchaseStatus.NotAdjacent;
+            return currency < regionsById[regionId].Price ? RegionPurchaseStatus.Unaffordable :
                 RegionPurchaseStatus.Available;
+        }
+
+        public bool HasRestoredAdjacent(string regionId)
+        {
+            if (!regionsById.TryGetValue(regionId, out FarmableRegion candidate))
+                throw new ArgumentException("The region is not defined.", nameof(regionId));
+            foreach (FarmableRegion region in regions)
+                if (GetStatus(region.Id) == RegionStatus.Restored &&
+                    candidate.SharesEdge(region)) return true;
+            return false;
         }
 
         public bool TryPurchase(string regionId, MarketInventory inventory)
