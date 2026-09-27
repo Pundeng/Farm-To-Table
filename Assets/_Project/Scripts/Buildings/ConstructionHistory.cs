@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using FantasyShapez.Food;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     // Construction only: runtime food, buffers, timers and progression never enter history.
     public sealed class ConstructionLayout

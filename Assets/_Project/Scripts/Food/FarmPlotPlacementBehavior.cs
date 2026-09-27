@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using FantasyShapez.Buildings;
+using CozyFoodFactory.Buildings;
 using UnityEngine;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class FarmPlotPlacementBehavior : MonoBehaviour, IBuildingPlacementBehavior
     {

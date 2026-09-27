@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using FantasyShapez.Buildings;
-using FantasyShapez.CameraControl;
-using FantasyShapez.Grid;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.CameraControl;
+using CozyFoodFactory.Grid;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     [Serializable]
     public sealed class PropertySourceSetup

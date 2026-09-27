@@ -2,7 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Rendering;
 
-namespace FantasyShapez.Grid
+namespace CozyFoodFactory.Grid
 {
     [DefaultExecutionOrder(-100)]
     [RequireComponent(typeof(LineRenderer))]

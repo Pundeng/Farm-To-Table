@@ -1,9 +1,9 @@
 using System;
-using FantasyShapez.Food;
-using FantasyShapez.UI;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.UI;
 using NUnit.Framework;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class RecipeDiscoveryPanelTests
     {

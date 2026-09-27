@@ -1,102 +1,185 @@
-# Fantasy Rune Factory legacy cleanup audit
+# Legacy Cleanup Phase 1 through 3 results
 
-**Snapshot:** 2026-09-27, branch `feature/ux-07-machine-animation`. **Scope:** read-only source, Unity YAML, build settings, and `.meta` inspection. No scene was opened and no Unity tests or Play Mode checks were run. The working tree already contains uncommitted UX-07 work; this audit changes only this document.
+**Date:** 2026-09-27. **Branch:** `chore/legacy-cleanup`.
+`Demo.unity` is the only supported playable scene. No Phase 1 Demo smoke-test
+result was available before Phase 2A. Unity Editor and Play Mode checks remain
+manual under the project's validation rules.
 
-## 1. Executive summary
+## Removed
 
-`Assets/_Project/Scenes/Demo.unity` is the food-only entry scene: its serialized Build options are Belt, Farm Plot, Harvester, Processor, Basic Mixer, and Cutter; its Hub field is null. This is evidence that the rune production loop is absent from **that scene**, not proof that rune code is unreferenced throughout the project. `ProjectSettings/EditorBuildSettings.asset` still enables **both** Demo and `Prototype.unity`. Prototype serializes Rune Extractor, Engraver, and Element Infuser options, Rune Stone deposits, a resource map, a Hub, and six rune objective assets. Its Glyph Rotator behavior and prefab also remain, though the scene has no Glyph Rotator Build option.
-
-**No rune-only code or asset is confirmed safe to delete while Prototype is a supported build scene and regression target.** The best near-term cleanup is a small, explicitly approved retirement of the rune-only Editor setup utility, if nobody still uses it to reauthor Prototype. Shared Grid, Building, Belt, transport, food save, Property, and UI code must stay. The riskiest work is separating the rune transport adapters and names from the food carrier, removing serialized components/GUIDs, and changing save compatibility.
-
-## 2. Active architecture and dependency map
-
-| Entry or flow | Verified dependency chain | Consequence for cleanup |
+| Phase | Category | Files |
 | --- | --- | --- |
-| Build entry | `ProjectSettings/EditorBuildSettings.asset` enables `Assets/_Project/Scenes/Demo.unity` and `Assets/_Project/Scenes/Prototype.unity`. Demo YAML has `foodDemoControls: 1`, `hub: {fileID: 0}`, six food Build options, and references to the shared Belt/Harvester and `DemoFarmPlot` prefabs. | Demo is the current food play path; Prototype remains build-reachable. Do not infer repository-wide dead code from Demo alone. |
-| Food construction and input | Demo's `BuildingPlacementController` references Grid, hover, preview, Belt/Farm/Harvester placement behaviors, `ObjectivePanel`, Market, recipe panel, and `BeltTransportCoordinator`. `BuildingPlacementController` instantiates Processor/Mixer/Cutter behavior for options without prefabs, reserves fixed Market/Property cells, and owns selection, removal, Blueprint, history, and zoom detail. | The large controller is mixed food/legacy code; removing whole classes or serialized fields would break food construction or scene deserialization. |
-| Food production and transport | `FarmPlot` → `Harvester`; Processor/Mixer/Cutter receive `FoodItemData` through `IItemInputReceiver`, send through `IItemOutputSource`/`IItemOutputPairSource`; `BeltTransportCoordinator` → `BeltTransportSystem` → `BeltCell` → `TransportedRune` → `ITransportItem`. Market is an item receiver. | `TransportedRune` is badly named but is the active food carrier. Belt classes and item interfaces are KEEP, not deletion targets. |
-| Property and UX | Demo's serialized Property sources feed `PropertySupplyPlayMode`/`CookingPropertyNetwork`; Processor registers demands. `ObjectivePanel` is the selected-machine panel for food as well as rune UI. `BuildingVisualFactory`, `MachineVisualAnimator`, and `PropertyActivityVisual` are constructed at runtime; their absence from scene YAML is expected. | Preserve Property ownership, active panels, ports, problem feedback, visual fallbacks, and animation while separating legacy branches later. |
-| Save and reconstruction | `ProgressionSaveService` selects `cozy-food-factory-demo.json` for Demo and `cozy-food-factory-progress.json` for Prototype; it accepts version 1 or 2. Version 2 uses `FactoryWorldSnapshotValidator` and `BuildingPlacementController.RestoreWorldSnapshot`. Saved building IDs and food-only state validation are explicit. | Do not remove version-1 migration, IDs, validators, or distinct paths without a save policy and fixtures. Legacy rune world state is rejected, not silently migrated. |
-| Prototype rune loop | Prototype YAML references `RuneExtractor`, `Engraver`, and `ElementInfuser` prefabs/behaviors; two `RuneStoneResourceNode`s and `RuneResourceMap`; `Hub` with six `ObjectiveDefinitionAsset`s; shared Belt and Market. Rune machines register through `IRuneInputReceiver`/`IRuneOutputSource` adapters. | This is a real serialized, build-enabled path even if it is outside the food GDD. Retire the scene deliberately before deleting its dependency graph. |
-| Assemblies and tests | `FantasyShapez.Runtime.asmdef` covers all runtime scripts under `Scripts`; `FantasyShapez.EditModeTests.asmdef` references it and is Editor-only. `Assets/_Project/Tests/EditMode/BeltTransportTests.cs` mixes rune cases with shared Belt behavior; food tests also exercise shared systems. | Source deletion must be accompanied by focused test edits, assembly compilation, and replacement food coverage. The `FantasyShapez` assembly name is not by itself evidence of unused code. |
+| 1 | Build entry and scene | Prototype's Build Settings entry; `Prototype.unity` |
+| 1 | Editor setup and assets | `PrototypeBeltTransportSetup.cs`; four rune machine prefabs; six rune objective assets |
+| 1 | Isolated implementation/test | `GlyphRotator.cs`, `GlyphRotatorProcess.cs`, `GlyphRotatorPlacementBehavior.cs`, `GlyphRotatorTests.cs` |
+| 2A | Rune runtime | All remaining scripts in `Scripts/Runes/`, `Scripts/Resources/`, `Scripts/Production/`, and `Scripts/Objectives/`; `IRuneInputReceiver.cs`; `IRuneOutputSource.cs` |
+| 2A | Exclusive tests | `RuneDataTests.cs`, `RuneExtractorTests.cs`, `EngraverTests.cs`, `ElementInfuserTests.cs`, `HubObjectiveTests.cs` |
 
-**Asset-reference method.** I matched `.meta` GUIDs against scene, prefab, ScriptableObject, and scene-template YAML under `Assets`, then inspected C# callers and Build Settings. Examples: Demo's `DemoFarmPlot.prefab` GUID appears in Demo; `RuneExtractor.prefab`, `Engraver.prefab`, and `ElementInfuser.prefab` GUIDs appear in Prototype; each of the six objective asset GUIDs appears in Prototype's Hub list. `GlyphRotator.prefab` has no scene/prefab/asset GUID reference in that set, but `PrototypeBeltTransportSetup.cs` names and creates it, and Prototype serializes `GlyphRotatorPlacementBehavior`. A zero YAML count is therefore insufficient proof of safe deletion. Code-created children and JSON saves are also outside YAML reachability.
+Each deleted asset or script was removed with its `.meta` file. Phase 2A
+also removed rune configuration and Hub branches in
+`BuildingPlacementController` and `ObjectivePanel`, the Prototype-only
+Market save controls/path, the Hub fixture in food snapshot validation, and
+the isolated rune transport adapters. Demo's two null Hub YAML fields were
+removed. The active machine panel reference remains.
 
-## 3. Classified candidate inventory
+Phase 2B removed the unreachable `foodDemoControls == false` F8, number-key,
+Escape, and right-click construction shortcuts, plus the old non-Demo group
+placement and rollback transaction. Demo group Move continues through
+`CanCutDemoSources`, `CanPlaceDemoGroup`, and `PlaceDemoGroup`. The former
+`IBuildingMoveState.ReattachAfterFailedMove` hook was exclusive to the retired
+transaction and was removed; Belt's active `CanMove` guard and
+`DetachForMove` cleanup remain.
 
-Categories: **A REMOVE CANDIDATE** (verified isolated), **B KEEP ACTIVE** (food gameplay), **C KEEP SHARED INFRASTRUCTURE**, **D REFACTOR OR RENAME LATER**, **E INVESTIGATE** (retained Prototype, external workflow, or incomplete evidence). Paths in one row form one dependency batch; every row states its dependent and proposed action.
+## Preserved food and shared code
 
-| Category and paths | Responsibility and evidence | Dependencies, removal risk, proposed action |
-| --- | --- | --- |
-| **A — none confirmed** | The apparently obsolete rune graph is still referenced by enabled Prototype or its tests/Editor setup. | Establish Prototype retention policy and validate workflows before assigning an A label. Do not use a filename-only deletion list. |
-| **B** `Assets/_Project/Scripts/Food/` production, recipes, Market, orders, unlocks, regions, save and discovery files; `Assets/_Project/Prefabs/DemoFarmPlot.prefab` | Demo scene references food placement/Market/panels and authors current recipes, orders, crops, Property sources. Runtime setup also creates some food machines without prefab references. | Depends on Grid, Building, transport, Property, scenes. Preserve. Recipe/progression/Property changes overlap contributor work: **defer**. |
-| **B** `Assets/_Project/Scripts/Buildings/BuildingVisualFactory.cs`, `MachineVisualAnimator.cs`, `PropertyActivityVisual.cs`, `FactoryIssueTracker.cs`; `Scripts/Camera/FactoryCameraController.cs` | Demo construction creates visual roots, UX-02 diagnostics and animation children; camera supplies LOD. New animation scripts are code-created, so no serialized scene reference is expected. | Depends on live building state and camera; removal would regress UX-07. Keep. Their two new `.meta` files are present but untracked; include them with the scripts in the eventual UX commit. |
-| **C** `Scripts/Grid/`, `Scripts/Buildings/GridOccupancy.cs`, `BuildingDefinition.cs`, `BuildingPlacement.cs`, `BuildingRotation.cs`, `PlacedBuilding.cs`, `BuildingPreview.cs`, `BlueprintLibrary.cs`, `ConstructionHistory.cs` | Legacy-origin layout and construction code is used by Demo's placements, rotation, selection, save reconstruction, Blueprint, and undo/redo. | Shared by both scenes. Keep contracts and test coverage; avoid broad renames while feature branches are open. |
-| **C** `Scripts/Logistics/Belt.cs`, `BeltCell.cs`, `BeltTransportSystem.cs`, `BeltTransportCoordinator.cs`, `ITransportItem.cs`, `IItemInputReceiver.cs`, `IItemOutputSource.cs`, `IItemOutputPairSource.cs`, `GridDirection.cs`; `Prefabs/Belt.prefab` | Demo YAML references coordinator and Belt prefab. Food machines use generic item interfaces; `BeltCell` actively stores a `TransportedRune` wrapper containing `ITransportItem`. | Preserve transport timing, direction, reservation, and save shape. Keep until a separately tested migration exists. |
-| **D** `Scripts/Logistics/TransportedRune.cs` and rune adapter sections of `BeltTransportSystem.cs`/`BeltTransportCoordinator.cs`; `IRuneInputReceiver.cs`, `IRuneOutputSource.cs` | Name and `Rune` convenience property are legacy, but the wrapper carries food. Adapters still connect Prototype rune machines to generic transport. | `BeltCell`, `Belt`, tests, and Prototype depend on these. Rename/refactor only after Prototype retirement and food carrier/save regression. **Coordinate before editing** Belt/coordinator. |
-| **D** `Scripts/Buildings/BuildingPlacementController.cs` rune/Hub branches and `Scripts/UI/ObjectivePanel.cs` rune configuration sections | Controller still serializes `hub` and `engraverUpgradePanel`, handles Extractor move state and rune machine selection, and reserves Hub when present. `ObjectivePanel` also drives current food machine configuration. Demo has null Hub; Prototype has a real Hub. | Split only after Prototype policy; retain food panel and serialized fields through migration. **Coordinate before editing** controller, UI, history, Blueprint. |
-| **D** `Scripts/FantasyShapez.Runtime.asmdef`, `Tests/EditMode/FantasyShapez.EditModeTests.asmdef`, `FantasyShapez` namespaces; `docs/DESIGN_SUMMARY.md` | Legacy names remain on active code; the design summary is food-focused, though some descriptions may lag the GDD. | Assembly/namespace rename affects serialized `m_EditorClassIdentifier`, references and generated project files. Defer until no parallel feature branches and update docs from current GDD/implementation. |
-| **E** `Scripts/Runes/{RuneData,RuneTypes,RuneOperations,GlyphData,ElementZoneAssignment}.cs`; `Scripts/Resources/{RuneStoneResource,RuneStoneResourceNode,RuneResourceMap}.cs` | Rune model and resource chain feeds Prototype's serialized nodes/map and rune production. `RuneData` implements `ITransportItem`; Demo has no rune deposits or resource map. | Prototype machines, objectives, tests and Editor setup depend on these. Retire as a graph only after Prototype support decision; no partial deletion. **Safe to investigate independently**, not to remove yet. |
-| **E** `Scripts/Production/{RuneExtractor,Engraver,ElementInfuser,GlyphRotator}*.cs`, `RuneOutputBuffer.cs`; corresponding four rune prefabs and `.meta` files | Prototype options serialize Extractor, Engraver, Infuser prefabs and behaviors. Glyph Rotator prefab has no scanned YAML use, yet its behavior is a Prototype component and the Editor setup creates/wires the prefab. | Depend on rune model, resource nodes, adapters, Hub/UI and tests. Verify whether editor workflow or external scenes use Rotator before deletion. **Coordinate before editing** serialized Prototype and shared placement. |
-| **E** `Scripts/Objectives/{Hub,HubReceiver,AccelerationRuneInventory,ObjectiveDefinition,ObjectiveDefinitionAsset,ObjectiveProgress}.cs`; six assets in `ScriptableObjects/Objectives/` | Prototype YAML serializes Hub and all six objective asset GUIDs. No Demo Hub reference. | Depend on RuneData, receiver adapter, ObjectivePanel and Prototype. Keep while scene enabled; if retired, remove assets together with `.meta` after GUID scan. |
-| **E** `Editor/PrototypeBeltTransportSetup.cs` | Editor menu `Fantasy Shapez/Configure Prototype Production` constructs rune prefabs/objective assets and saves a Belt prefab. It is not called by Demo at runtime. | Potentially used to reauthor Prototype and can write the **shared** Belt prefab. Confirm owner/workflow, then consider a standalone editor-only removal issue. Never run it as an audit check. |
-| **E** `Tests/EditMode/{RuneData,RuneExtractor,Engraver,ElementInfuser,GlyphRotator,HubObjective}Tests.cs`; rune cases in `BeltTransportTests.cs` and any rune occupancy tests | These tests cover the retained Prototype rune path and shared Belt semantics; they are not evidence of Demo gameplay by themselves. | Keep until corresponding code/scene retirement. Split mixed tests first and retain food transport/occupancy coverage. **Coordinate** with contributor changes to transport. |
-| **E** `Scenes/Prototype.unity`, `Prefabs/FarmPlot.prefab`, `docs/archive/FANTASY_RUNE_FACTORY_DESIGN_SUMMARY.md` | Prototype is build-enabled and uses its original Farm Plot prefab. The archived design summary is explicitly historical, not a food requirement. | Scene and prefab require a product decision plus save/regression policy. Archive has documentation value; remove only if the team no longer needs provenance. |
+Demo, `DemoFarmPlot.prefab`, the older food `FarmPlot.prefab`, Belt and
+Harvester prefabs, Grid and occupancy, construction and placement, generic
+item transport, `FoodItemData`, Farm Plot, Harvester, Processor, Mixer,
+Cutter, Property supply, Market and orders, progression, regions,
+Blueprints, history, camera LOD, Factory Issues, UX-07 visuals/animation,
+and version-1/version-2 food save/load remain. The older `FarmPlot.prefab`
+and archived rune design notes are retained as non-playable content.
 
-The default `Assets/Scenes/SampleScene.unity` and URP template assets are outside this rune audit. They are absent from Build Settings, but their template/workflow use was not established, so they are not A candidates here. I found no project-authored rune PNG/SVG/material/shader files under `Assets/_Project`; rune visual art may exist outside this checkout or only as Unity placeholders, which remains an open asset-inventory question.
+Mixed Belt tests now use `FoodItemData`; Market and save rejection tests use
+a non-food `ITransportItem`. Grid, food machine, Cutter paired-output,
+Property, Blueprint, history, and food Save/Load coverage remains. No rune
+transport adapter remains.
 
-## 4. Shared infrastructure to preserve
+## Remaining legacy names
 
-Food-only Demo still needs the generic item interfaces, `TransportedRune` storage wrapper, Belt prefab, Grid and placement contracts, Property network, Market receiver, `ObjectivePanel` food sections, and both runtime and test assemblies. The current save validator intentionally rejects non-food belt contents and legacy building IDs. Deleting that rejection as if it were dead rune code would weaken save validation. Likewise, current construction and Blueprint logic depends on stable definition IDs and rotation/ownership behavior; a rename or removal can break reconstruction even if a C# search looks clean.
+| Candidate | Reason deferred |
+| --- | --- |
+| `ObjectivePanel`, the active `engraverUpgradePanel` serialized field, and `foodDemoControls` guards in placement and UI | Names and guards remain in shared food code. Demo serializes `foodDemoControls: 1` and references the active `ObjectivePanel` component. Removing or renaming them needs scene serialization and UI regression checks. |
+| Legacy wording in non-food save errors and archived documents | Food save rejection and historical notes remain intentional. |
+| `BuildingDefinition.id = "PrototypeMachine"` and Belt's `runeDebug` field | Naming/default/debug data only; neither proves a live rune gameplay path. Serialized field changes need prefab inspection. |
 
-## 5. Unity serialization and save risks
+The active `ProgressionSaveService.DemoPath` and `isDemo` migration marker remain:
+version-1 Demo progression migration and version-2 food world snapshots must
+continue to load. Non-food payloads, unsupported building IDs, and Demo debug
+demands still fail validation. `BuildingGroupCopy.CanPlace` and the related
+occupancy tests remain even though the controller no longer calls that helper:
+the helper is generic and directly tested, and deleting it is unnecessary for
+Phase 2B.
 
-1. **Scene and prefab GUIDs.** Prototype has direct GUID references to three rune machine prefabs and six objective assets; its components refer to rune script GUIDs. Delete each asset with its `.meta` only after all serialized references and Build Settings entries are removed or deliberately migrated. Inspect any external/additive scenes and packaged content before calling the graph dead.
-2. **Enabled Prototype.** Build Settings currently list Demo and Prototype as enabled. A change to Prototype's support status is a prerequisite for almost every rune deletion. The GDD replaces rune gameplay as the new product design; it does not itself remove the regression scene.
-3. **Serialized type identity.** `FantasyShapez.Runtime` and class/namespace names appear in scene `m_EditorClassIdentifier` values. Moving/renaming MonoBehaviours without a Unity migration could produce missing scripts even if C# compiles.
-4. **Save compatibility.** `ProgressionSaveService` separates Demo and Prototype paths and accepts version 1/2 data; `FactoryWorldSnapshotValidator` validates food-only building IDs and rejects RuneData on belts. Keep old fixtures and migration behavior until a written compatibility decision permits removal. A version-2 world reconstruction is not equivalent to calling `TryLoadJson` alone.
-5. **UX-07.02 `.meta` check.** `MachineVisualAnimator.cs.meta` and `PropertyActivityVisual.cs.meta` now exist with distinct GUIDs and no duplicate GUIDs found under `Assets`. Both `.cs` and `.meta` files are untracked in the current worktree. They were generated after the prior session's report; verify Unity import/compilation in the running Editor and include each pair when that feature is committed. Do not invent or replace their GUIDs.
+Remaining serialized-name cleanup needs Editor and Demo regression results. It
+must cover scene/prefab references, food saves, Blueprint IDs, and test fixtures.
 
-## 6. Contributor and branch impact
+## Phase 2C transport rename and inventory
 
-| Area | Coordination mark | Reason |
-| --- | --- | --- |
-| Read-only mapping of rune-only files, archived docs, and Prototype YAML | **Safe to clean independently** at audit level | No implementation change or shared gameplay edit. |
-| `PrototypeBeltTransportSetup.cs` retirement | **Coordinate before editing** | Editor workflow ownership is unknown and its setup touches shared `Belt.prefab`. Scope a separate PR if approved. |
-| Rune production prefabs, Prototype scene, Hub/objective assets | **Coordinate before editing** | Serialized GUID and regression dependencies; agree on Prototype support and build entry first. |
-| `Belt`, coordinator/system, Property network, recipes, machine progression, save, Blueprint, `BuildingPlacementController`, `ObjectivePanel`, UX visuals | **Defer until contributor PRs are merged** | Explicitly active food systems; current branch has uncommitted UX changes and the other contributor is working on recipe, progression, and Property behavior. Do not assume their changes are already present. |
-| Assembly and namespace rename | **Defer until contributor PRs are merged** | Broad serialized and merge impact across nearly all files. |
+The Phase 2B worktree remains uncommitted. A Unity Editor process is running,
+but no Unity window was available through the UI inventory, and no current
+EditMode or Demo Play Mode results were found. Import status, missing scripts,
+Console errors, and the camera component in the running Demo could not be
+confirmed. The camera GUID `a79441f348de89743a2939f4d699eac1` resolves
+on disk to `UniversalAdditionalCameraData.cs.meta` in the installed URP
+package. This does not replace an Editor check. The later prompt authorized
+the internal type rename after reconfirming its dependency graph; the broader
+serialized-field migrations remain deferred.
 
-## 7. Staged cleanup plan
+`TransportedItem` is a plain C# runtime wrapper for `ITransportItem`, entry
+direction, and progress. Its project type references are limited to `BeltCell`,
+`Belt`, and `BeltTransportSystem`. No scene, prefab, ScriptableObject, test, or
+project setting contains the type name or its script GUID. The wrapper is not
+a `MonoBehaviour` or a JSON field; food snapshots persist `SavedBelt.item`
+as `SavedFood` plus `entryDirection` and `progress`. No reflection or
+string-based construction of the wrapper was found in project source. Its
+public C# API has project callers, but external compiled callers cannot be
+ruled out from repository inspection alone. Phase 2C renamed the single
+wrapper, its constructors, and its project references, retaining GUID
+`e6d85389c97b2034cb20daa5ea435757` and behavior. No food save key, stable
+building or food ID, serialized field, or `FantasyShapez` name changed.
 
-| Stage | Issue-sized action | Preconditions and validation gate |
-| --- | --- | --- |
-| **0 — decision and baseline** | Decide whether Prototype remains build-enabled and whether its Editor reauthoring workflow must be supported; inventory external scenes, content and saved files. Capture current Demo and Prototype smoke behavior. | Owner decision recorded; Unity Editor script import clean; Demo/Prototype scene GUID check; relevant EditMode and manual Play Mode baseline recorded. Without this, stop at investigation. |
-| **A — isolated Editor utility** | If no longer used, remove only `PrototypeBeltTransportSetup.cs` and its `.meta` in its own PR; leave all runtime assets/scenes. | Confirm menu is not needed to rebuild Prototype. Review its writes to shared `Belt.prefab`; verify both scenes and prefabs unchanged; compile Editor scripts and reopen both scenes. |
-| **A2 — Prototype graph, only if retired** | Remove one leaf cluster at a time: Glyph Rotator, then rune resource/machine prefabs and code, then Hub/objective assets; remove serialized scene components/GUIDs before scripts/assets. | Prototype removed from build or otherwise explicitly retired, save/regression policy decided, full GUID search including external content, Demo Play Mode smoke after each PR. Do not combine with food feature edits. |
-| **B — tests** | Remove purely rune tests with the code they test; split mixed Belt/occupancy tests and keep food equivalents. | Focused food EditMode tests, transport edge cases, `git diff --check`, and clean Unity compilation. |
-| **C — compatibility** | Remove `IRune*` adapters and rune overloads only after no rune producers/receivers remain; retain generic item transport. | Trace callers and serialized assets again; test food transfer, blocking, paired Cutter outputs, Market intake, and save/load on belts. |
-| **D — names and docs** | Rename `TransportedRune`, assembly/namespace identifiers, mixed UI fields, and stale documentation in separate migration PRs. | Stable contributor branches, Unity serialization migration strategy, saved-data fixture coverage, complete scene/prefab GUID and class-ID checks. Archived design reference can be retained intentionally. |
-| **E — full regression** | Run Demo and any retained Prototype coverage across construction, production, UX, and save compatibility. | All prior phase gates passed; run Unity EditMode tests and manual Play Mode, not just offline C# compilation. |
+Other remaining names: Belt's serialized `runeDebug`, the serialized
+`engraverUpgradePanel` and `foodDemoControls` fields, and `ObjectivePanel`
+require an Inspector/scene migration check. `BuildingDefinition`'s serialized
+`PrototypeMachine` default needs prefab/default-value review. The `isDemo`
+flag and historical RuneData error text remain tied to version-1 migration
+and non-food save rejection. No independent safe naming-only code edit was
+identified during Phase 2C. The Phase 3 namespace and assembly migration is
+recorded below; it did not alter food IDs, building IDs, or save keys.
 
-## 8. Required regression checks
+An earlier Phase 2C inspection compiled Runtime and EditMode test assemblies
+offline with zero warnings and errors. The project asset scan found no missing
+or orphan `.meta` files or duplicate GUIDs, and `git diff --check` passed.
+Unity tests and Demo Play Mode were not executed during that inspection.
 
-- **Static before every deletion:** all Build Settings scenes; GUID occurrences in scenes, prefabs, ScriptableObjects and any external/additive content; C# callers, reflection/string IDs, asmdefs, `.meta` pairs, editor menu references, and save field/definition IDs.
-- **Focused EditMode:** Grid occupancy/rotation/removal; shared Belt single-item, direction and blockage semantics with food; concurrent Mixer input reservation; Cutter paired outputs; Property ownership/capacity; Blueprint/undo validation; version-1/2 save and invalid RuneData rejection. Keep rune tests until the Prototype graph is retired.
-- **Manual Demo Play Mode in the running Editor:** place/rotate/remove each machine; Farm Plot → Harvester → Belt → Processor/Mixer/Cutter → Market; Property disconnect/reconnect; order/unlock/region flow; Blueprint placement and Undo/Redo; save/load with in-flight food; UX-02 issues, zoom LOD, UX-07 visuals and animation.
-- **Manual Prototype Play Mode while retained:** Extractor → Engraver/Infuser → Hub objectives; rune transport adapters; rotation and machine configuration; scene opening with no missing scripts. Validate the intended legacy save boundary separately from Demo.
+For the completed wrapper rename, Runtime and EditMode test assemblies compiled
+offline with zero warnings and errors after temporarily updating the stale
+Unity-generated `.csproj` source entry; the generated project file was
+restored. No `TransportedRune` source or test reference remains. The renamed
+script keeps its original GUID, all `Assets/_Project` files have matching
+`.meta` partners, and no project asset GUID is duplicated. `git diff --check`
+passed. Unity EditMode and Demo Play Mode verification of this rename remain
+pending in the running Editor.
 
-No new tests were executed for this audit. Static inspection does not prove runtime behavior or absence of references outside the scanned project assets.
+## Phase 3 namespace and assembly migration
 
-## 9. Open questions and uncertain references
+Project-authored Runtime, Editor, and EditMode test C# code now uses
+`CozyFoodFactory` namespaces and fully qualified references. The two asmdefs
+are `CozyFoodFactory.Runtime` and `CozyFoodFactory.EditModeTests`; the test
+asmdef references the new Runtime assembly. Their filenames moved with the
+original `.meta` GUIDs (`7acd7498e041457aa4f641002b80123d` and
+`b85420cf3c9d429b8068d1e7a697d4bc`). The reflection-based test lookup
+was updated to the new namespace.
 
-1. Is `Prototype.unity` still a supported build/regression scene, or may it be archived outside the build? Who owns that decision?
-2. Does anyone use `Fantasy Shapez/Configure Prototype Production` to reauthor Prototype or regenerate the shared Belt prefab?
-3. Are there external scenes, Addressables/Resources packages, older branches, or user save files requiring the rune GUIDs or version-1 behavior? None were established by this repository scan.
-4. Is `GlyphRotator.prefab` used by an Editor workflow or external content despite no scanned scene/prefab/asset GUID reference? The serialized Prototype behavior alone does not prove the prefab is instantiated.
-5. What is the retention policy for the archived rune design summary and Prototype-only test fixtures?
-6. Has Unity imported both new UX-07.02 scripts and `.meta` files without console errors? File existence and unique GUIDs are verified; Editor import is not.
+Only project-authored `m_EditorClassIdentifier` values were migrated in the
+supported `Demo.unity` scene (14) and Belt, DemoFarmPlot, FarmPlot, and
+Harvester prefabs (two each). Their `m_Script` GUIDs and other Inspector data
+were not changed. No ScriptableObject needed an identifier migration.
+The untracked `Assets/_Recovery/0.unity` retains old identifiers and was
+preserved as user recovery data; it is not a supported playable scene.
 
-## 10. Concrete first cleanup issue for the next session
+The remaining `runeDebug` and `engraverUpgradePanel` serialized field names,
+`foodDemoControls` guard, `ObjectivePanel` class name, and
+`PrototypeMachine` default were retained to avoid an unrelated serialized
+field or stable-ID change. Historical RuneData wording remains in active
+invalid-save rejection and archived material. The repository folder name
+also remains unchanged. Food save keys, Blueprint schema, and gameplay rules
+were not migrated.
 
-**Issue: retire the Prototype production Editor setup menu, if its owner confirms it is unused.** Scope only `Assets/_Project/Editor/PrototypeBeltTransportSetup.cs` and its `.meta`; leave `Prototype.unity`, machine prefabs, objective assets, transport, and food files untouched. Before editing, confirm the menu is not required to rebuild the retained Prototype scene and record the current shared `Belt.prefab` state. Acceptance: no remaining source/menu references, both enabled scenes open with no missing scripts, Editor compilation succeeds, the shared Belt prefab and scene YAML are unchanged, and a short Prototype/Demo Play Mode smoke test passes. If the menu is still used, keep it and first resolve the Prototype retention decision; do not substitute a broader deletion.
+Phase 3 offline validation: Runtime and EditMode test assemblies compiled as
+`CozyFoodFactory.Runtime` and `CozyFoodFactory.EditModeTests` with zero warnings
+and errors. The Unity-generated `.csproj` files were adjusted temporarily for
+the build, then restored; asmdefs remain the source of truth. Seventy-nine
+otherwise unchanged C# files matched the exact namespace substitution.
+The Demo/prefab diff contains only the 22 intended
+`m_EditorClassIdentifier` changes. All 110 project asset GUIDs are unique,
+all `Assets/_Project` files have matching `.meta` partners, and the renamed
+asmdefs and transport script retain their prior GUIDs. The only project
+scene/prefab script GUID absent from repository assets is the pre-existing
+URP camera GUID, which resolves in the installed package cache.
+`git diff --check` passed. Unity import, EditMode tests, and Demo Play Mode
+remain pending for this migration; offline compilation is not their result.
+
+## Validation
+
+Build Settings list only Demo. No deleted GUID occurs in retained `Assets`
+or `ProjectSettings`; retained `Assets/_Project` files have matching
+`.meta` files, with no orphan pairs. Before Phase 2A deletion, none of the
+remaining rune runtime script GUIDs appeared in supported scenes, prefabs,
+or ScriptableObjects. Demo retains its active project script GUIDs; one
+pre-existing camera script GUID also occurs in SampleScene and the URP scene
+template and is not among the deleted project GUIDs.
+`git diff --check` passed. The runtime and EditMode test assemblies compiled
+offline with zero warnings and errors after temporarily correcting stale
+Unity-generated `.csproj` source lists. The generated files were restored.
+Offline compilation is not Unity Test Runner execution.
+
+Phase 2B: current Unity-generated projects compiled offline with zero warnings
+and errors for both Runtime and EditMode test assemblies. The changed scripts
+retain their `.meta` files; all 110 project asset GUIDs are unique, and no
+file under `Assets/_Project` lacks its `.meta` partner or has an orphan partner.
+No removed rune type remains referenced in active assets or project settings.
+Demo still contains the pre-existing camera component GUID
+`a79441f348de89743a2939f4d699eac1`, also present in SampleScene and the
+URP scene template; it has no repository `.meta` and must be resolved by the
+running Editor/package import check. No other nonzero Demo project asset GUID
+was unresolved in the repository scan. `git diff --check` passed. Unity Editor,
+EditMode Test Runner, and Play Mode were not run in Phase 2B.
+
+In the running Unity Editor, verify import/compilation and focused EditMode
+tests, then open Demo and check for missing scripts. In Play Mode, verify
+startup; Farm Plot -> Harvester -> Belt -> Processor/Mixer/Cutter -> Market;
+Property Collector/Pipe connections; Blueprint placement; Undo/Redo;
+version-1 and version-2 Save/Load; and UX-07 visuals at Close, Medium, and
+Far zoom. Record actual outcomes before claiming these pass.

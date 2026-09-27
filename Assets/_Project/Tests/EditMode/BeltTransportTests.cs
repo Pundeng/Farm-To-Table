@@ -1,12 +1,11 @@
 using System.Collections.Generic;
-using FantasyShapez.Buildings;
-using FantasyShapez.Logistics;
-using FantasyShapez.Production;
-using FantasyShapez.Runes;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Logistics;
+using CozyFoodFactory.Food;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class BeltTransportTests
     {
@@ -28,12 +27,12 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void Belt_AcceptsOnlyOneRuneAtATime()
+        public void Belt_AcceptsOnlyOneFoodAtATime()
         {
             var belt = new BeltCell(Vector2Int.zero, GridDirection.East);
 
-            bool acceptedFirst = belt.TryAccept(CreateRune(), GridDirection.East);
-            bool acceptedSecond = belt.TryAccept(CreateRune(), GridDirection.East);
+            bool acceptedFirst = belt.TryAccept(CreateFood(), GridDirection.East);
+            bool acceptedSecond = belt.TryAccept(CreateFood(), GridDirection.East);
 
             Assert.That(acceptedFirst, Is.True);
             Assert.That(acceptedSecond, Is.False);
@@ -41,49 +40,49 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void ReadyRune_TransfersToAvailableNextBeltWithoutChangingRuneData()
+        public void ReadyFood_TransfersToAvailableNextBeltWithoutChangingFoodItemData()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell first = system.AddBelt(Vector2Int.zero, GridDirection.East);
             BeltCell second = system.AddBelt(Vector2Int.right, GridDirection.North);
-            RuneData rune = CreateRune();
-            first.TryAccept(rune, GridDirection.East);
+            FoodItemData food = CreateFood();
+            first.TryAccept(food, GridDirection.East);
 
             system.Advance(1f);
 
             Assert.That(first.HasItem, Is.False);
             Assert.That(second.HasItem, Is.True);
-            Assert.That(second.Item.Rune, Is.SameAs(rune));
+            Assert.That(second.Item.Item, Is.SameAs(food));
             Assert.That(second.Item.Progress, Is.Zero);
         }
 
         [Test]
-        public void ReadyRune_WaitsWhenNextBeltIsOccupied()
+        public void ReadyFood_WaitsWhenNextBeltIsOccupied()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell first = system.AddBelt(Vector2Int.zero, GridDirection.East);
             BeltCell second = system.AddBelt(Vector2Int.right, GridDirection.East);
-            RuneData waitingRune = CreateRune();
-            first.TryAccept(waitingRune, GridDirection.East);
-            second.TryAccept(CreateRune(), GridDirection.East);
+            FoodItemData waitingFood = CreateFood();
+            first.TryAccept(waitingFood, GridDirection.East);
+            second.TryAccept(CreateFood(), GridDirection.East);
 
             system.Advance(1f);
 
-            Assert.That(first.Item.Rune, Is.SameAs(waitingRune));
+            Assert.That(first.Item.Item, Is.SameAs(waitingFood));
             Assert.That(first.Item.Progress, Is.EqualTo(1f));
         }
 
         [Test]
-        public void Rune_StopsAtOutputEndWhenNoNextBeltExists()
+        public void Food_StopsAtOutputEndWhenNoNextBeltExists()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell belt = system.AddBelt(Vector2Int.zero, GridDirection.East);
-            RuneData rune = CreateRune();
-            belt.TryAccept(rune, GridDirection.East);
+            FoodItemData food = CreateFood();
+            belt.TryAccept(food, GridDirection.East);
 
             system.Advance(2f);
 
-            Assert.That(belt.Item.Rune, Is.SameAs(rune));
+            Assert.That(belt.Item.Item, Is.SameAs(food));
             Assert.That(belt.Item.Progress, Is.EqualTo(1f));
         }
 
@@ -91,7 +90,7 @@ namespace FantasyShapez.Tests.EditMode
         [TestCase(GridDirection.East, 1, 0, GridDirection.West)]
         [TestCase(GridDirection.South, 0, -1, GridDirection.North)]
         [TestCase(GridDirection.West, -1, 0, GridDirection.East)]
-        public void OppositeFacingBelts_BlockRuneWithoutBounceBack(
+        public void OppositeFacingBelts_BlockFoodWithoutBounceBack(
             GridDirection sourceDirection,
             int destinationX,
             int destinationY,
@@ -102,99 +101,54 @@ namespace FantasyShapez.Tests.EditMode
             BeltCell destination = system.AddBelt(
                 new Vector2Int(destinationX, destinationY),
                 destinationDirection);
-            RuneData rune = CreateRune();
-            source.TryAccept(rune, sourceDirection);
+            FoodItemData food = CreateFood();
+            source.TryAccept(food, sourceDirection);
 
             system.Advance(1f);
             system.Advance(1f);
             system.Advance(1f);
 
-            Assert.That(source.Item.Rune, Is.SameAs(rune));
+            Assert.That(source.Item.Item, Is.SameAs(food));
             Assert.That(source.Item.Progress, Is.EqualTo(1f));
             Assert.That(destination.HasItem, Is.False);
         }
 
         [Test]
-        public void OccupiedOppositeFacingBelts_PreserveBothRunesInPlace()
+        public void OccupiedOppositeFacingBelts_PreserveBothFoodsInPlace()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell left = system.AddBelt(Vector2Int.zero, GridDirection.East);
             BeltCell right = system.AddBelt(Vector2Int.right, GridDirection.West);
-            RuneData leftRune = CreateRune();
-            RuneData rightRune = CreateRune();
-            left.TryAccept(leftRune, GridDirection.East);
-            right.TryAccept(rightRune, GridDirection.West);
+            FoodItemData leftFood = CreateFood();
+            FoodItemData rightFood = CreateFood();
+            left.TryAccept(leftFood, GridDirection.East);
+            right.TryAccept(rightFood, GridDirection.West);
 
             system.Advance(1f);
             system.Advance(1f);
 
-            Assert.That(left.Item.Rune, Is.SameAs(leftRune));
-            Assert.That(right.Item.Rune, Is.SameAs(rightRune));
+            Assert.That(left.Item.Item, Is.SameAs(leftFood));
+            Assert.That(right.Item.Item, Is.SameAs(rightFood));
             Assert.That(left.Item.Progress, Is.EqualTo(1f));
             Assert.That(right.Item.Progress, Is.EqualTo(1f));
         }
 
         [Test]
-        public void ExtractorOutput_TransfersOnlyWhenReceivingBeltCanAccept()
-        {
-            var buffer = new RuneOutputBuffer(2);
-            RuneData firstRune = CreateRune();
-            RuneData secondRune = CreateRune();
-            buffer.TryAdd(firstRune);
-            buffer.TryAdd(secondRune);
-            var source = new BufferedOutputSource(
-                buffer,
-                Vector2Int.right,
-                GridDirection.East);
-            var system = new BeltTransportSystem(1f);
-            BeltCell receivingBelt = system.AddBelt(Vector2Int.right, GridDirection.East);
-            system.RegisterOutputSource(source);
-
-            system.Advance(0f);
-            system.Advance(0f);
-
-            Assert.That(receivingBelt.Item.Rune, Is.SameAs(firstRune));
-            Assert.That(buffer.Count, Is.EqualTo(1));
-            Assert.That(buffer.PeekOutput(), Is.SameAs(secondRune));
-        }
-
-        [Test]
-        public void ExtractorOutput_RemainsBufferedWhenReceivingBeltIsBlocked()
-        {
-            var buffer = new RuneOutputBuffer(1);
-            RuneData bufferedRune = CreateRune();
-            buffer.TryAdd(bufferedRune);
-            var source = new BufferedOutputSource(
-                buffer,
-                Vector2Int.right,
-                GridDirection.East);
-            var system = new BeltTransportSystem(1f);
-            BeltCell receivingBelt = system.AddBelt(Vector2Int.right, GridDirection.East);
-            receivingBelt.TryAccept(CreateRune(), GridDirection.East);
-            system.RegisterOutputSource(source);
-
-            system.Advance(0f);
-
-            Assert.That(buffer.Count, Is.EqualTo(1));
-            Assert.That(buffer.PeekOutput(), Is.SameAs(bufferedRune));
-        }
-
-        [Test]
-        public void ThreeBeltChain_MovesRuneToFinalBelt()
+        public void ThreeBeltChain_MovesFoodToFinalBelt()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell first = system.AddBelt(new Vector2Int(0, 0), GridDirection.East);
             BeltCell second = system.AddBelt(new Vector2Int(1, 0), GridDirection.East);
             BeltCell third = system.AddBelt(new Vector2Int(2, 0), GridDirection.North);
-            RuneData rune = CreateRune();
-            first.TryAccept(rune, GridDirection.East);
+            FoodItemData food = CreateFood();
+            first.TryAccept(food, GridDirection.East);
 
             system.Advance(1f);
             system.Advance(1f);
 
             Assert.That(first.HasItem, Is.False);
             Assert.That(second.HasItem, Is.False);
-            Assert.That(third.Item.Rune, Is.SameAs(rune));
+            Assert.That(third.Item.Item, Is.SameAs(food));
         }
 
         [Test]
@@ -216,14 +170,14 @@ namespace FantasyShapez.Tests.EditMode
                 belts.Add(system.AddBelt(step.Cell, step.Rotation.ToGridDirection()));
             }
 
-            RuneData rune = CreateRune();
-            belts[0].TryAccept(rune, GridDirection.East);
+            FoodItemData food = CreateFood();
+            belts[0].TryAccept(food, GridDirection.East);
             system.Advance(1f);
             system.Advance(1f);
 
             Assert.That(belts[0].OutputCell, Is.EqualTo(belts[1].Cell));
             Assert.That(belts[1].OutputCell, Is.EqualTo(belts[2].Cell));
-            Assert.That(belts[2].Item.Rune, Is.SameAs(rune));
+            Assert.That(belts[2].Item.Item, Is.SameAs(food));
         }
 
         [Test]
@@ -239,11 +193,11 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void OccupiedBelt_CanBeRemovedAndDiscardsRune()
+        public void OccupiedBelt_CanBeRemovedAndDiscardsFood()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell belt = system.AddBelt(Vector2Int.zero, GridDirection.East);
-            belt.TryAccept(CreateRune(), GridDirection.East);
+            belt.TryAccept(CreateFood(), GridDirection.East);
 
             bool removed = system.RemoveBelt(belt);
 
@@ -256,7 +210,7 @@ namespace FantasyShapez.Tests.EditMode
         {
             var system = new BeltTransportSystem(1f);
             BeltCell removedBelt = system.AddBelt(Vector2Int.zero, GridDirection.East);
-            removedBelt.TryAccept(CreateRune(), GridDirection.East);
+            removedBelt.TryAccept(CreateFood(), GridDirection.East);
             system.RemoveBelt(removedBelt);
 
             BeltCell replacement = system.AddBelt(Vector2Int.zero, GridDirection.North);
@@ -266,54 +220,24 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void RemovingDownstreamBelt_LeavesUpstreamRuneBlockedSafely()
+        public void RemovingDownstreamBelt_LeavesUpstreamFoodBlockedSafely()
         {
             var system = new BeltTransportSystem(1f);
             BeltCell upstream = system.AddBelt(Vector2Int.zero, GridDirection.East);
             BeltCell downstream = system.AddBelt(Vector2Int.right, GridDirection.East);
-            RuneData rune = CreateRune();
-            upstream.TryAccept(rune, GridDirection.East);
+            FoodItemData food = CreateFood();
+            upstream.TryAccept(food, GridDirection.East);
             system.RemoveBelt(downstream);
 
             Assert.DoesNotThrow(() => system.Advance(2f));
-            Assert.That(upstream.Item.Rune, Is.SameAs(rune));
+            Assert.That(upstream.Item.Item, Is.SameAs(food));
             Assert.That(upstream.Item.Progress, Is.EqualTo(1f));
         }
 
-        private static RuneData CreateRune()
+        private static FoodItemData CreateFood()
         {
-            return new RuneData(RuneBaseShape.Circle);
+            return new FoodItemData("apple", FoodItemKind.RawIngredient);
         }
 
-        private sealed class BufferedOutputSource : IRuneOutputSource
-        {
-            private readonly RuneOutputBuffer buffer;
-
-            public BufferedOutputSource(
-                RuneOutputBuffer buffer,
-                Vector2Int outputCell,
-                GridDirection outputDirection)
-            {
-                this.buffer = buffer;
-                OutputCell = outputCell;
-                OutputDirection = outputDirection;
-            }
-
-            public Vector2Int OutputCell { get; }
-
-            public GridDirection OutputDirection { get; }
-
-            public bool HasOutput => buffer.HasOutput;
-
-            public RuneData PeekOutput()
-            {
-                return buffer.PeekOutput();
-            }
-
-            public bool TryTakeOutput(out RuneData rune)
-            {
-                return buffer.TryTakeOutput(out rune);
-            }
-        }
     }
 }

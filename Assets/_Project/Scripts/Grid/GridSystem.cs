@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace FantasyShapez.Grid
+namespace CozyFoodFactory.Grid
 {
     public sealed class GridSystem : MonoBehaviour
     {

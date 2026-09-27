@@ -1,8 +1,8 @@
-using FantasyShapez.Food;
+using CozyFoodFactory.Food;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class CookingPropertyNetworkTests
     {

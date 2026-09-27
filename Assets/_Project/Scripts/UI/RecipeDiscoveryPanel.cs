@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using FantasyShapez.Buildings;
-using FantasyShapez.Food;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace FantasyShapez.UI
+namespace CozyFoodFactory.UI
 {
     public enum RecipeDisclosure { Unknown, Hint, Discovered }
 

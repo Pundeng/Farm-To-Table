@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using FantasyShapez.Buildings;
+using CozyFoodFactory.Buildings;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     [Serializable]
     public sealed class ProgressionSaveData
@@ -106,9 +106,6 @@ namespace FantasyShapez.Food
             this.validateWorld = validateWorld ?? ((world, _) =>
                 FactoryWorldSnapshotValidator.Validate(world));
         }
-
-        public static string DefaultPath =>
-            Path.Combine(Application.persistentDataPath, "cozy-food-factory-progress.json");
 
         public static string DemoPath =>
             Path.Combine(Application.persistentDataPath, "cozy-food-factory-demo.json");

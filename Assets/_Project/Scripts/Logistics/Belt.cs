@@ -1,10 +1,10 @@
-using FantasyShapez.Buildings;
-using FantasyShapez.Grid;
-using FantasyShapez.Food;
-using FantasyShapez.CameraControl;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Grid;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.CameraControl;
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     public sealed class Belt : MonoBehaviour, IBuildingRemovalRule, IBuildingMoveState
     {
@@ -55,7 +55,7 @@ namespace FantasyShapez.Logistics
                 throw new System.InvalidOperationException("Belt is not initialized.");
             }
 
-            TransportedRune carried = cell.Item;
+            TransportedItem carried = cell.Item;
             return new SavedBelt
             {
                 item = SavedFood.FromTransport(carried?.Item),
@@ -76,11 +76,6 @@ namespace FantasyShapez.Logistics
         public void DetachForMove()
         {
             coordinator?.UnregisterBelt(cell);
-        }
-
-        public void ReattachAfterFailedMove()
-        {
-            cell = coordinator.RegisterBelt(this, cell.Cell, direction);
         }
 
         public void Initialize(

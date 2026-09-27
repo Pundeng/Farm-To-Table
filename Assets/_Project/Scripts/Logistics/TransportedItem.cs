@@ -1,20 +1,17 @@
 using System;
-using FantasyShapez.Runes;
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
-    public sealed class TransportedRune
+    public sealed class TransportedItem
     {
-        public TransportedRune(ITransportItem item, GridDirection entryDirection)
+        public TransportedItem(ITransportItem item, GridDirection entryDirection)
         {
             Item = item ?? throw new ArgumentNullException(nameof(item));
             EnterFrom(entryDirection);
         }
 
         public ITransportItem Item { get; }
-
-        public RuneData Rune => Item as RuneData;
 
         public GridDirection EntryDirection { get; private set; }
 

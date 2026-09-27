@@ -1,11 +1,11 @@
 using System;
-using FantasyShapez.Buildings;
-using FantasyShapez.Food;
-using FantasyShapez.UI;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.UI;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace FantasyShapez.CameraControl
+namespace CozyFoodFactory.CameraControl
 {
     public enum WorldInformationLevel { Close, Medium, Far }
 

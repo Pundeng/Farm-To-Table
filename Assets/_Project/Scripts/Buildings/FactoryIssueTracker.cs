@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     public sealed class FactoryIssue<T> where T : class
     {

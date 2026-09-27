@@ -8,6 +8,12 @@
 
 **Working Title:** Cozy Food Factory
 
+**Supported playable scene:** `Demo.unity`. The former Fantasy Rune Factory
+`Prototype.unity` scene and rune gameplay were retired during Legacy Cleanup
+Phase 1. Shared grid, building, belt, item transport, and food save
+infrastructure remains. Project namespace and assembly names do not define
+new gameplay requirements.
+
 ---
 
 ## Milestone 06 — Factory Scale (demo rules)
@@ -151,14 +157,14 @@ The map contains randomly distributed clusters of:
 
 The exact map generation algorithm is TBD.
 
-### Prototype Save Boundary
+### Food Save Boundary
 
 The first factory snapshot records placed food production equipment, its held food and
 production progress, belts and their in-flight food, and player-built property
 connections. Debug test loads are included because they occupy cells and consume
-supply. The prototype Load action reconstructs this snapshot in a fresh scene.
-Legacy rune state is not part of the new food game
-design and must not be silently discarded by a prototype save.
+supply. The Demo Load action reconstructs this snapshot in a fresh scene.
+Legacy rune state is excluded from food saves and must fail validation rather
+than be silently discarded.
 
 The belt-reconstruction item deletion rule below applies when a player rebuilds a
 belt, not when a snapshot is captured or restored. The Demo System Menu owns manual

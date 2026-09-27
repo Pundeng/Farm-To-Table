@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using FantasyShapez.Buildings;
-using FantasyShapez.Grid;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.Grid;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class MarketPanel : MonoBehaviour
     {
@@ -33,8 +33,7 @@ namespace FantasyShapez.Food
         private GameObject regionVisualRoot;
         private readonly Dictionary<string, SpriteRenderer> regionVisuals = new();
         public event Action GameSaved;
-        private string SavePath => buildings != null && buildings.IsFoodDemo
-            ? ProgressionSaveService.DemoPath : ProgressionSaveService.DefaultPath;
+        private string SavePath => ProgressionSaveService.DemoPath;
 
         public bool IsPointerOverPanel
         {
@@ -193,16 +192,6 @@ namespace FantasyShapez.Food
                             regions.GetPurchaseStatus(region.Id, market.Currency)))
                         selectedRegionId = region.Id;
                 }
-            }
-
-            // Prototype has no Demo System Menu; keep its legacy regression controls.
-            if (buildings != null && !buildings.IsFoodDemo)
-            {
-                GUILayout.Space(6f);
-                GUILayout.Label("Prototype Save");
-                if (GUILayout.Button("Save progression")) SaveGame();
-                if (GUILayout.Button("Load progression")) LoadGame();
-                if (!string.IsNullOrEmpty(SaveMessage)) GUILayout.Label(SaveMessage);
             }
 
             GUILayout.EndScrollView();

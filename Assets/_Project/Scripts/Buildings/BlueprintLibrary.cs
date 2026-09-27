@@ -3,11 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using FantasyShapez.Food;
-using FantasyShapez.Production;
+using CozyFoodFactory.Food;
 using UnityEngine;
 
-namespace FantasyShapez.Buildings
+namespace CozyFoodFactory.Buildings
 {
     [Serializable]
     public sealed class BlueprintFile

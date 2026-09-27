@@ -1,14 +1,14 @@
 using System;
 using System.IO;
 using System.Reflection;
-using FantasyShapez.Buildings;
-using FantasyShapez.CameraControl;
-using FantasyShapez.Food;
-using FantasyShapez.Logistics;
+using CozyFoodFactory.Buildings;
+using CozyFoodFactory.CameraControl;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class Ux06FactoryScaleTests
     {

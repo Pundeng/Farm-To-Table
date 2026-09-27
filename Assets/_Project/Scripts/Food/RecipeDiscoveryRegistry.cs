@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public enum DiscoveredRecipeKind
     {

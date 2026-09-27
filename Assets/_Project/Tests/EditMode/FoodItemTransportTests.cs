@@ -1,11 +1,9 @@
-using FantasyShapez.Food;
-using FantasyShapez.Logistics;
-using FantasyShapez.Objectives;
-using FantasyShapez.Runes;
+using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class FoodItemTransportTests
     {
@@ -115,27 +113,6 @@ namespace FantasyShapez.Tests.EditMode
             Assert.That(system.RemoveBelt(belt), Is.True);
             Assert.That(belt.HasItem, Is.False);
             Assert.That(system.AddBelt(Vector2Int.zero, GridDirection.North), Is.Not.Null);
-        }
-
-        [Test]
-        public void LegacyRuneReceiver_DoesNotConsumeFood()
-        {
-            var system = new BeltTransportSystem(1f);
-            var objective = new ObjectiveProgress(new[]
-            {
-                new ObjectiveDefinition("Rune", new RuneData(RuneBaseShape.Circle), 1)
-            });
-            var receiver = new HubReceiver(Vector2Int.zero, GridDirection.East,
-                objective, new AccelerationRuneInventory());
-            BeltCell belt = system.AddBelt(Vector2Int.left, GridDirection.East);
-            var food = new FoodItemData("apple", FoodItemKind.RawIngredient);
-            belt.TryAccept(food, GridDirection.East);
-            system.RegisterInputReceiver(receiver);
-
-            system.Advance(1f);
-
-            Assert.That(belt.Item.Item, Is.SameAs(food));
-            Assert.That(objective.CurrentCount, Is.Zero);
         }
 
         private sealed class FoodSource : IItemOutputSource

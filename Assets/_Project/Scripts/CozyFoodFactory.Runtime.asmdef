@@ -1,6 +1,6 @@
 {
-  "name": "FantasyShapez.Runtime",
-  "rootNamespace": "FantasyShapez",
+  "name": "CozyFoodFactory.Runtime",
+  "rootNamespace": "CozyFoodFactory",
   "references": [
     "Unity.InputSystem"
   ],

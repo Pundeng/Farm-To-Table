@@ -1,8 +1,8 @@
 {
-  "name": "FantasyShapez.EditModeTests",
-  "rootNamespace": "FantasyShapez.Tests",
+  "name": "CozyFoodFactory.EditModeTests",
+  "rootNamespace": "CozyFoodFactory.Tests",
   "references": [
-    "FantasyShapez.Runtime"
+    "CozyFoodFactory.Runtime"
   ],
   "includePlatforms": [
     "Editor"

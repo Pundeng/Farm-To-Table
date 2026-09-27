@@ -1,6 +1,6 @@
 using System;
 
-namespace FantasyShapez.Food
+namespace CozyFoodFactory.Food
 {
     public sealed class BasicMixerProcess
     {

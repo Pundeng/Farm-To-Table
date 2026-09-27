@@ -1,8 +1,8 @@
 using System;
-using FantasyShapez.Buildings;
+using CozyFoodFactory.Buildings;
 using UnityEngine;
 
-namespace FantasyShapez.Logistics
+namespace CozyFoodFactory.Logistics
 {
     public enum GridDirection
     {

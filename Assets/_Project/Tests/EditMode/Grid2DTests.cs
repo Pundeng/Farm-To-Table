@@ -1,8 +1,8 @@
-using FantasyShapez.Grid;
+using CozyFoodFactory.Grid;
 using NUnit.Framework;
 using UnityEngine;
 
-namespace FantasyShapez.Tests.EditMode
+namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class Grid2DTests
     {
