@@ -66,6 +66,7 @@ namespace FantasyShapez.Buildings
             Array.Empty<BuildingPlacementOption>();
         [SerializeField] private PropertySourceSetup[] propertySources =
             Array.Empty<PropertySourceSetup>();
+        [SerializeField] private PropertyVisualDefinition propertyVisuals = new();
         [SerializeField] private BeltTransportCoordinator processorTransportCoordinator = null;
         [SerializeField, Min(0.01f)] private float processorDuration = 1f;
         [SerializeField] private ProcessingRecipe[] processorRecipes =
@@ -378,7 +379,8 @@ namespace FantasyShapez.Buildings
             }
 
             propertySupply = new PropertySupplyPlayMode(gridSystem, hoverHighlight,
-                occupancy, transform, propertySources, !foodDemoControls);
+                occupancy, transform, propertySources, !foodDemoControls,
+                propertyVisuals);
             if (foodDemoControls)
             {
                 propertySupply.ConstructionStarting += OnPropertyConstructionStarting;
@@ -761,6 +763,11 @@ namespace FantasyShapez.Buildings
                 factoryCamera = Camera.main.GetComponent<FactoryCameraController>();
             WorldInformationLevel level = factoryCamera?.InformationLevel ??
                 WorldInformationLevel.Close;
+            if (market != null && market.TryGetComponent(
+                    out MachineVisualAnimator marketAnimation))
+                marketAnimation.SetInformationLevel(level,
+                    hoverHighlight.HoveredCell == market.InputCell &&
+                    !IsPointerOverInterface);
             occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
                 out BuildingPlacement hoveredPlacement);
             foreach (KeyValuePair<BuildingPlacement, PlacedBuilding> entry in buildingInstances)
@@ -771,6 +778,8 @@ namespace FantasyShapez.Buildings
                     view.IsEmphasized;
                 if (entry.Value.TryGetComponent(out Belt belt))
                     belt.SetInformationLevel(level, detail);
+                if (entry.Value.TryGetComponent(out MachineVisualAnimator animation))
+                    animation.SetInformationLevel(level, detail);
                 foreach (TextMesh label in entry.Value.GetComponentsInChildren<TextMesh>(true))
                 {
                     if (!label.gameObject.name.EndsWith(" label", StringComparison.Ordinal))
@@ -2340,7 +2349,12 @@ namespace FantasyShapez.Buildings
                     buildingObject.transform,
                     gridSystem.CellSize,
                     buildingObject.GetComponent<Harvester>() != null ? 11 : 10);
-                BuildingVisualFactory.Tint(visual, definition.PlacedColor);
+                BuildingVisualFactory.ApplyRotation(visual, definition,
+                    placement.Rotation);
+                if (definition.UsesPlaceholderVisual)
+                    BuildingVisualFactory.Tint(visual, definition.PlacedColor);
+                else BuildingVisualFactory.MultiplyAlpha(visual,
+                    definition.PlacedColor.a);
                 BuildingVisualFactory.CreatePortMarkers(buildingObject.transform,
                     option.PortPreviews, gridSystem.CellSize, placement.Rotation);
                 if (engraverRecipe.HasValue)
@@ -2366,6 +2380,13 @@ namespace FantasyShapez.Buildings
                     buildingObject.GetComponent<Harvester>() != null)
                     BuildingVisualFactory.CreateFeedbackView(buildingObject.transform,
                         gridSystem.CellSize);
+                if (buildingObject.GetComponent<FarmPlot>() != null ||
+                    buildingObject.GetComponent<Harvester>() != null ||
+                    buildingObject.GetComponent<Processor>() != null ||
+                    buildingObject.GetComponent<BasicMixer>() != null ||
+                    buildingObject.GetComponent<Cutter>() != null)
+                    buildingObject.AddComponent<MachineVisualAnimator>().Initialize(
+                        visual, gridSystem.CellSize, processorTransportCoordinator);
                 return instance;
             }
             catch

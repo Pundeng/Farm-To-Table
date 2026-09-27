@@ -886,6 +886,10 @@ Important visual distinctions include:
 
 The exact palette, sprite resolution, animation style, and asset pipeline are TBD.
 
+UX-07.01 keeps geometric placeholders until final art arrives. Building body art is selected through the existing building visual definition, independently of grid footprint, ports, and placement validation. A missing Sprite or visual prefab retains a readable colored body. Food art is optional by stable food ID; an unknown or unassigned food remains visible as a color/shape/label mark. At Far zoom, belt food uses compact neutral marks, while hover or selection restores detail. Final Processor art must leave its unoccupied L corner clear, Harvester art must allow the Farm Plot below to remain legible, and directional artwork must be checked at 0°, 90°, 180°, and 270°. Machine animation and any Bunny attachment belong to the visual body and observe simulation state; their clips, character art, pixel density, and final layering details remain art-production decisions.
+
+UX-07.02 uses visual-only placeholder animation tied to observed state. A selected Farm Plot crop grows visibly; Harvester collection gives a short motion; Processor and Cutter move only while their active work can proceed; the instant Mixer recipe gives a brief turn on output creation. A supplied Collector shows subtle activity and the Market acknowledges food delivery. Idle and blocked machines stay calm while UX-02 remains the sole problem indicator. Close shows motion, Medium keeps the primary cue, and Far suppresses small animation except focused buildings. Static body art, animated parts, optional Bunny attachment, and port/diagnostic overlays remain separate so later Sprites or Animator clips can replace placeholders. Final artwork, clips, and Bunny behavior remain undecided.
+
 ---
 
 # 19. User Experience

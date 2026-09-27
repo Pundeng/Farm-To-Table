@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using FantasyShapez.Buildings;
+using FantasyShapez.CameraControl;
 using FantasyShapez.Food;
 using FantasyShapez.Logistics;
 using NUnit.Framework;
@@ -10,9 +11,102 @@ namespace FantasyShapez.Tests.EditMode
 {
     public sealed class ProcessorProcessTests
     {
+        [Test]
+        public void MachineAnimationDecisions_ReactOnlyToNewOutputOrHarvest()
+        {
+            Assert.IsFalse(MachineAnimationDecisions.OutputCreated(false, false, true));
+            Assert.IsTrue(MachineAnimationDecisions.OutputCreated(true, false, true));
+            Assert.IsFalse(MachineAnimationDecisions.OutputCreated(true, true, true));
+            Assert.IsFalse(MachineAnimationDecisions.Harvested(false, 0, 1));
+            Assert.IsTrue(MachineAnimationDecisions.Harvested(true, 1, 2));
+            Assert.IsFalse(MachineAnimationDecisions.Harvested(true, 2, 1));
+        }
+
+        [Test]
+        public void MachineAnimationDecisions_PausesBlockedMotionAndHidesFarDetail()
+        {
+            Assert.IsTrue(MachineAnimationDecisions.Processing(
+                ProcessorState.Processing, true));
+            Assert.IsFalse(MachineAnimationDecisions.Processing(
+                ProcessorState.Processing, false));
+            Assert.IsFalse(MachineAnimationDecisions.Cutting(
+                CutterState.Processing, false));
+            Assert.IsFalse(MachineAnimationDecisions.ShowMotion(
+                WorldInformationLevel.Far, false));
+            Assert.IsTrue(MachineAnimationDecisions.ShowMotion(
+                WorldInformationLevel.Far, true));
+        }
+
         private static readonly FoodItemData Apple = new("Apple", FoodItemKind.RawIngredient);
         private static readonly FoodItemData DriedApple =
             new("Dried Apple", FoodItemKind.ProcessedFood);
+
+        [Test]
+        public void PropertyVisuals_MissingAndPartialArtworkKeepAllConnectionsVisible()
+        {
+            var texture = new Texture2D(2, 2);
+            var artwork = Sprite.Create(texture, new Rect(0, 0, 2, 2),
+                new Vector2(0.5f, 0.5f));
+            var missingArtwork = Sprite.Create(texture, new Rect(0, 0, 2, 2),
+                new Vector2(0.5f, 0.5f));
+            Object.DestroyImmediate(missingArtwork);
+            try
+            {
+                var configurations = new[]
+                {
+                    (PropertyVisualDefinition)null,
+                    new PropertyVisualDefinition(),
+                    new PropertyVisualDefinition { source = missingArtwork },
+                    new PropertyVisualDefinition { source = artwork },
+                    new PropertyVisualDefinition
+                    {
+                        source = artwork, collector = artwork, pipe = artwork
+                    }
+                };
+                int[] artworkCounts = { 0, 0, 0, 1, 3 };
+                for (int index = 0; index < configurations.Length; index++)
+                {
+                    var root = new GameObject("Property visual test");
+                    try
+                    {
+                        var grid = root.AddComponent<GridSystem>();
+                        var occupancy = new GridOccupancy();
+                        var supply = new PropertySupplyPlayMode(grid, null,
+                            occupancy, root.transform,
+                            new[] { new PropertySourceSetup
+                            {
+                                cell = Vector2Int.zero,
+                                property = CookingProperty.Heat,
+                                capacity = 2
+                            } }, true, configurations[index]);
+                        Assert.That(supply.TryPlaceCollector(Vector2Int.right,
+                            Vector2Int.zero), Is.True);
+                        Assert.That(supply.TryPlacePipe(new Vector2Int(2, 0)), Is.True);
+                        int visible = 0;
+                        int assignedArtwork = 0;
+                        foreach (SpriteRenderer renderer in
+                            root.GetComponentsInChildren<SpriteRenderer>())
+                        {
+                            if (renderer.sortingOrder != 12) continue;
+                            Assert.That(renderer.sprite, Is.Not.Null);
+                            visible++;
+                            if (renderer.sprite == artwork) assignedArtwork++;
+                        }
+                        Assert.That(visible, Is.EqualTo(3));
+                        Assert.That(assignedArtwork,
+                            Is.EqualTo(artworkCounts[index]));
+                        Assert.That(supply.CaptureWorldConnections().Length,
+                            Is.EqualTo(2));
+                    }
+                    finally { Object.DestroyImmediate(root); }
+                }
+            }
+            finally
+            {
+                Object.DestroyImmediate(artwork);
+                Object.DestroyImmediate(texture);
+            }
+        }
 
         [Test]
         public void PipePathPreview_ValidatesCornerAndDoesNotPlaceUntilCommit()

@@ -177,50 +177,101 @@ namespace FantasyShapez.Buildings
             float cellSize,
             int sortingOrder)
         {
+            var root = new GameObject("Building Visual");
+            root.transform.SetParent(parent, false);
+            Vector2 offset = definition.VisualOffset * cellSize;
+            root.transform.localPosition = new Vector3(offset.x, offset.y, 0f);
+            Vector2 scale = definition.VisualScale;
+            root.transform.localScale = new Vector3(scale.x, scale.y, 1f);
+            int maxBodyOrder = sortingOrder >= 70 ? 78 : 18;
+            int bodyOrder = Mathf.Min(maxBodyOrder,
+                sortingOrder + definition.VisualSortingOffset);
             if (definition.VisualPrefab != null)
             {
-                GameObject prefabVisual = UnityEngine.Object.Instantiate(definition.VisualPrefab, parent);
+                GameObject prefabVisual = UnityEngine.Object.Instantiate(
+                    definition.VisualPrefab, root.transform);
                 prefabVisual.name = definition.VisualPrefab.name;
                 prefabVisual.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
-                return prefabVisual;
+                foreach (SpriteRenderer renderer in
+                    prefabVisual.GetComponentsInChildren<SpriteRenderer>(true))
+                    renderer.sortingOrder = Mathf.Clamp(
+                        bodyOrder + renderer.sortingOrder,
+                        bodyOrder, maxBodyOrder);
+                return root;
             }
 
-            var placeholder = new GameObject("Placeholder Visual");
-            placeholder.transform.SetParent(parent, false);
+            if (definition.VisualSprite != null)
+            {
+                GameObject body = CreateBody(root.transform, "Sprite Body",
+                    definition.VisualSprite, bodyOrder);
+                Vector2 artSize = definition.VisualSprite.bounds.size;
+                body.transform.localScale = new Vector3(
+                    definition.Footprint.x * cellSize /
+                        Mathf.Max(0.001f, artSize.x),
+                    definition.Footprint.y * cellSize /
+                        Mathf.Max(0.001f, artSize.y), 1f);
+                return root;
+            }
+
             if (definition.HasExplicitFootprint)
             {
                 foreach (Vector2Int cell in definition.OccupiedCells)
                 {
-                    var tile = new GameObject($"Cell {cell.x},{cell.y}");
-                    tile.transform.SetParent(placeholder.transform, false);
+                    GameObject tile = CreateBody(root.transform,
+                        $"Cell {cell.x},{cell.y}", GetPlaceholderSprite(), bodyOrder);
                     tile.transform.localPosition = new Vector3(
                         (cell.x - (definition.Footprint.x - 1) * 0.5f) * cellSize,
                         (cell.y - (definition.Footprint.y - 1) * 0.5f) * cellSize,
                         0f);
                     tile.transform.localScale = new Vector3(cellSize, cellSize, 1f);
-                    SpriteRenderer tileRenderer = tile.AddComponent<SpriteRenderer>();
-                    tileRenderer.sprite = GetPlaceholderSprite();
-                    tileRenderer.sortingOrder = sortingOrder;
                 }
 
-                return placeholder;
+                return root;
             }
 
+            GameObject placeholder = CreateBody(root.transform,
+                "Placeholder Body", GetPlaceholderSprite(), bodyOrder);
             placeholder.transform.localScale = new Vector3(
                 definition.Footprint.x * cellSize,
                 definition.Footprint.y * cellSize,
                 1f);
+            return root;
+        }
 
-            SpriteRenderer renderer = placeholder.AddComponent<SpriteRenderer>();
-            renderer.sprite = GetPlaceholderSprite();
+        public static void ApplyRotation(GameObject visualRoot,
+            BuildingDefinition definition, BuildingRotation rotation)
+        {
+            visualRoot.transform.localRotation = definition.RotateVisualWithBuilding
+                ? Quaternion.identity : Quaternion.Euler(0f, 0f, (int)rotation);
+        }
+
+        private static GameObject CreateBody(Transform parent, string name,
+            Sprite sprite, int sortingOrder)
+        {
+            var body = new GameObject(name);
+            body.transform.SetParent(parent, false);
+            SpriteRenderer renderer = body.AddComponent<SpriteRenderer>();
+            renderer.sprite = sprite;
             renderer.sortingOrder = sortingOrder;
-            return placeholder;
+            return body;
         }
 
         public static void Tint(GameObject visualRoot, Color color)
         {
-            foreach (SpriteRenderer renderer in visualRoot.GetComponentsInChildren<SpriteRenderer>())
+            foreach (SpriteRenderer renderer in
+                visualRoot.GetComponentsInChildren<SpriteRenderer>(true))
             {
+                renderer.color = color;
+            }
+        }
+
+        public static void MultiplyAlpha(GameObject visualRoot, float alpha)
+        {
+            foreach (SpriteRenderer renderer in
+                visualRoot.GetComponentsInChildren<SpriteRenderer>(true))
+            {
+                Color color = renderer.color;
+                color.a *= alpha;
                 renderer.color = color;
             }
         }

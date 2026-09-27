@@ -6,14 +6,37 @@ using UnityEngine;
 
 namespace FantasyShapez.Logistics
 {
+    [Serializable]
+    public sealed class FoodVisualDefinition
+    {
+        [SerializeField] private string foodId;
+        [SerializeField] private Sprite sprite;
+
+        public string FoodId => foodId;
+        public Sprite Sprite => sprite;
+    }
+
     [DefaultExecutionOrder(100)]
     public sealed class BeltTransportCoordinator : MonoBehaviour
     {
         [SerializeField] private GridSystem gridSystem = null;
         [SerializeField, Min(0.01f)] private float movementSpeed = 1f;
+        [SerializeField] private FoodVisualDefinition[] foodVisuals =
+            Array.Empty<FoodVisualDefinition>();
 
         private readonly Dictionary<BeltCell, Belt> beltViews = new();
         private BeltTransportSystem transportSystem;
+
+        public Sprite GetFoodSprite(FoodItemData food)
+        {
+            if (food == null || foodVisuals == null) return null;
+            foreach (FoodVisualDefinition visual in foodVisuals)
+                if (visual != null && visual.Sprite != null &&
+                    string.Equals(visual.FoodId, food.Id,
+                        StringComparison.OrdinalIgnoreCase))
+                    return visual.Sprite;
+            return null;
+        }
 
         public BeltCell RegisterBelt(Belt belt, Vector2Int cell, GridDirection direction)
         {

@@ -12,6 +12,11 @@ namespace FantasyShapez.Buildings
         [SerializeField] private Vector2Int[] occupiedCells = Array.Empty<Vector2Int>();
         [SerializeField] private GameObject instancePrefab = null;
         [SerializeField] private GameObject visualPrefab = null;
+        [SerializeField] private Sprite visualSprite = null;
+        [SerializeField] private Vector2 visualScale = Vector2.one;
+        [SerializeField] private Vector2 visualOffset = Vector2.zero;
+        [SerializeField] private int visualSortingOffset;
+        [SerializeField] private bool keepVisualUpright;
         [SerializeField] private Color placedColor = new(0.3f, 0.65f, 0.9f, 1f);
 
         public string Id => id;
@@ -27,6 +32,15 @@ namespace FantasyShapez.Buildings
 
         public GameObject VisualPrefab => visualPrefab;
 
+        public Sprite VisualSprite => visualSprite;
+        public Vector2 VisualScale => new(
+            visualScale.x > 0f ? visualScale.x : 1f,
+            visualScale.y > 0f ? visualScale.y : 1f);
+        public Vector2 VisualOffset => visualOffset;
+        public int VisualSortingOffset => Mathf.Clamp(visualSortingOffset, 0, 2);
+        public bool RotateVisualWithBuilding => !keepVisualUpright;
+        public bool UsesPlaceholderVisual => visualPrefab == null && visualSprite == null;
+
         public Color PlacedColor => placedColor;
 
         public Vector2Int GetRotatedFootprint(BuildingRotation rotation)
@@ -38,6 +52,8 @@ namespace FantasyShapez.Buildings
         {
             footprint.x = Mathf.Max(1, footprint.x);
             footprint.y = Mathf.Max(1, footprint.y);
+            visualScale = VisualScale;
+            visualSortingOffset = Mathf.Clamp(visualSortingOffset, 0, 2);
             if (!HasExplicitFootprint)
             {
                 return;

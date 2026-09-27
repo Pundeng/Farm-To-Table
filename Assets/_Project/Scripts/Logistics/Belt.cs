@@ -138,11 +138,21 @@ namespace FantasyShapez.Logistics
             if (!hasItem || itemVisual == null || cell?.Item == null) return;
             bool far = informationLevel == WorldInformationLevel.Far && !forceItemDetail;
             FoodItemData food = cell.Item.Item as FoodItemData;
-            itemVisual.GetComponent<SpriteRenderer>().color = far
+            Sprite artwork = far ? null : coordinator?.GetFoodSprite(food);
+            SpriteRenderer renderer = itemVisual.GetComponent<SpriteRenderer>();
+            renderer.sprite = artwork != null ? artwork : GetPlaceholderSprite();
+            Vector2 spriteSize = renderer.sprite.bounds.size;
+            float longestSide = Mathf.Max(0.001f,
+                Mathf.Max(spriteSize.x, spriteSize.y));
+            itemVisual.transform.localScale = Vector3.one *
+                (ItemVisualScale(informationLevel, forceItemDetail) / longestSide);
+            renderer.color = far
                 ? new Color(0.84f, 0.84f, 0.78f)
-                : food != null ? FoodColor(food) : Color.white;
+                : artwork != null ? Color.white :
+                    food != null ? FoodColor(food) : Color.white;
             itemVisual.transform.rotation = Quaternion.Euler(0f, 0f,
-                !far && food?.Kind == FoodItemKind.ProcessedFood ? 45f : 0f);
+                artwork == null && !far &&
+                food?.Kind == FoodItemKind.ProcessedFood ? 45f : 0f);
         }
 
         private void CreateDirectionArrow()
@@ -173,7 +183,7 @@ namespace FantasyShapez.Logistics
             SpriteRenderer renderer = itemVisual.AddComponent<SpriteRenderer>();
             renderer.sprite = GetPlaceholderSprite();
             renderer.color = Color.white;
-            renderer.sortingOrder = 25;
+            renderer.sortingOrder = 19;
             var label = new GameObject("Food identity");
             label.transform.SetParent(transform, false);
             itemLabel = label.AddComponent<TextMesh>();
@@ -181,7 +191,7 @@ namespace FantasyShapez.Logistics
             itemLabel.characterSize = 0.12f;
             itemLabel.anchor = TextAnchor.MiddleCenter;
             itemLabel.color = Color.black;
-            itemLabel.GetComponent<MeshRenderer>().sortingOrder = 26;
+            itemLabel.GetComponent<MeshRenderer>().sortingOrder = 20;
             itemVisual.SetActive(false);
             itemLabel.gameObject.SetActive(false);
         }

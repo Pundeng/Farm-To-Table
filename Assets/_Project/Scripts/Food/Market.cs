@@ -9,6 +9,7 @@ namespace FantasyShapez.Food
     public sealed class Market : MonoBehaviour
     {
         [SerializeField] private BeltTransportCoordinator transportCoordinator = null;
+        [SerializeField] private Sprite visualSprite;
         [SerializeField] private Vector2Int inputCell = new(10, 4);
         [SerializeField] private string lastDeliveryDebug = string.Empty;
         [SerializeField] private FoodOrder[] orders = Array.Empty<FoodOrder>();
@@ -81,10 +82,20 @@ namespace FantasyShapez.Food
 
         private void CreatePlaceholderVisual()
         {
-            CreateVisualPart("Market Body", Vector2.zero, new Vector2(0.85f, 0.85f),
-                new Color(0.2f, 0.7f, 0.55f, 1f), 8);
-            CreateVisualPart("Market Core", Vector2.zero, new Vector2(0.38f, 0.38f),
-                new Color(1f, 0.85f, 0.4f, 1f), 9);
+            if (visualSprite != null)
+            {
+                CreateVisualPart("Market Body", Vector2.zero,
+                    new Vector2(0.85f, 0.85f), Color.white, 8, visualSprite);
+            }
+            else
+            {
+                CreateVisualPart("Market Body", Vector2.zero,
+                    new Vector2(0.85f, 0.85f),
+                    new Color(0.2f, 0.7f, 0.55f, 1f), 8);
+                CreateVisualPart("Market Core", Vector2.zero,
+                    new Vector2(0.38f, 0.38f),
+                    new Color(1f, 0.85f, 0.4f, 1f), 9);
+            }
             foreach (GridDirection direction in new[]
                 { GridDirection.North, GridDirection.East, GridDirection.South, GridDirection.West })
             {
@@ -95,17 +106,23 @@ namespace FantasyShapez.Food
                 CreateVisualPart($"Input {direction}", position, scale,
                     BuildingPortPreviewLayouts.InputColor, 10);
             }
+            gameObject.AddComponent<MachineVisualAnimator>().InitializeMarket(this);
         }
 
         private void CreateVisualPart(
-            string name, Vector2 position, Vector2 scale, Color color, int sortingOrder)
+            string name, Vector2 position, Vector2 scale, Color color,
+            int sortingOrder, Sprite sprite = null)
         {
             var part = new GameObject(name);
             part.transform.SetParent(transform, false);
             part.transform.localPosition = new Vector3(position.x, position.y, 0f);
-            part.transform.localScale = new Vector3(scale.x, scale.y, 1f);
+            Vector2 artSize = sprite != null ? sprite.bounds.size : Vector2.one;
+            part.transform.localScale = new Vector3(
+                scale.x / Mathf.Max(0.001f, artSize.x),
+                scale.y / Mathf.Max(0.001f, artSize.y), 1f);
             SpriteRenderer renderer = part.AddComponent<SpriteRenderer>();
-            renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
+            renderer.sprite = sprite != null ? sprite :
+                BuildingVisualFactory.PlaceholderSprite;
             renderer.color = color;
             renderer.sortingOrder = sortingOrder;
         }
