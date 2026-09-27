@@ -128,6 +128,61 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
+        public void PropertyClipboard_RemapsCollectorToMatchingSourceAtDestination()
+        {
+            var root = new GameObject("Property remap test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var occupancy = new GridOccupancy();
+                var supply = new PropertySupplyPlayMode(grid, null, occupancy,
+                    root.transform, new[]
+                    {
+                        new PropertySourceSetup { cell = Vector2Int.zero,
+                            property = CookingProperty.Heat, capacity = 2 },
+                        new PropertySourceSetup { cell = new Vector2Int(5, 0),
+                            property = CookingProperty.Heat, capacity = 2 }
+                    });
+                var copied = new PropertyConnection(Vector2Int.right,
+                    Vector2Int.zero, CookingProperty.Heat,
+                    PropertyConnectionKind.Collector);
+                var items = new[] { new PropertyGroupCopyItem(copied, Vector2Int.zero) };
+                Assert.That(supply.TryPlanClipboardConnections(items,
+                    new Vector2Int(4, 0), new HashSet<Vector2Int>(),
+                    out IReadOnlyList<PropertyGroupCopyItem> plan), Is.True);
+                Assert.That(plan[0].Connection.SourceCell,
+                    Is.EqualTo(new Vector2Int(5, 0)));
+                Assert.That(supply.TryPlaceClipboardConnection(plan[0],
+                    new Vector2Int(4, 0)), Is.True);
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [Test]
+        public void PropertyDependencyCheck_RejectsRemovingCollectorUnderLivePipe()
+        {
+            var root = new GameObject("Property dependency test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var supply = new PropertySupplyPlayMode(grid, null,
+                    new GridOccupancy(), root.transform, new[]
+                    {
+                        new PropertySourceSetup { cell = Vector2Int.zero,
+                            property = CookingProperty.Heat, capacity = 2 }
+                    });
+                Assert.That(supply.TryPlaceCollector(Vector2Int.right,
+                    Vector2Int.zero), Is.True);
+                Assert.That(supply.TryPlacePipe(new Vector2Int(2, 0)), Is.True);
+                Assert.That(supply.CanRemoveWithoutBreakingDependents(
+                    new[] { Vector2Int.right }), Is.False);
+                Assert.That(supply.CanRemoveWithoutBreakingDependents(
+                    new[] { Vector2Int.right, new Vector2Int(2, 0) }), Is.True);
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [Test]
         public void PlacedProcessor_RegistersDemandAndAcceptsFarmAppleWhenAirPipeConnects()
         {
             var root = new GameObject("Property test root");

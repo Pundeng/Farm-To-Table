@@ -2,11 +2,23 @@
 # Cozy Food Factory
 ## Game Design Document (GDD)
 
-**Version:** 0.5
-**Date:** September 25, 2026
+**Version:** 0.6
+**Date:** September 26, 2026
 **Status:** Core Concept & Systems Defined
 
 **Working Title:** Cozy Food Factory
+
+---
+
+## Milestone 06 — Factory Scale (demo rules)
+
+Players select one building with Left Click, toggle with Shift + Left Click, and select intersecting footprints with Shift + Left Drag. Selection shows a small count and outlines, including Farm Plots beneath Harvesters. M previews a move without changing the Clipboard. R rotates the group; Left Click commits and Esc or Right Click cancels. Ctrl+C, Ctrl+X, Ctrl+V, and normal-mode Right Click demolition remain available. Copy and Blueprint Save preserve active items at their sources while capturing construction only. A move or cut of buildings carrying food or active production requires one explicit confirmation that those runtime contents will be discarded. Cancellation or failed placement preserves the originals and their contents; successful relocation creates empty new buildings. Undo restores construction only, never discarded food or elapsed production.
+
+The Build Menu includes a named Blueprint Library separate from the temporary Clipboard and world Save/Load. A Blueprint stores building types, relative cells, rotations, Farm Plot crop choices, and constructed Property connections. It excludes live food, buffers, progression, currency, fixed Property Sources, and automatic Processor demands. The Library survives restarts and fresh Demo sessions and supports Place, Rename, Duplicate, and Delete. Placement previews the complete rotated layout and commits only when all footprints, farmland, unlocks, dependencies, and Property connections are valid. Connections may attach to a matching fixed Property Source at the destination. Failed placement leaves the world unchanged and explains the obstacle. Locked machines keep their Blueprints visible but block placement.
+
+Ctrl+Z and Ctrl+Y navigate the latest 50 construction actions in the current session. A building action, Belt or Pipe drag, right-drag removal, Blueprint or Clipboard paste, group relocation, and crop change each count as one action. Failed or cancelled actions do not enter history. Replay revalidates the current factory and refuses to remove active food or production, disconnect dependent Property links, or restore into occupied or inaccessible cells. It never rewinds transported food, machine buffers, production, currency, orders, or time. A new action after Undo clears Redo. Saving retains history; loading or restarting clears it.
+
+World labels adapt to zoom: Close shows detailed food and port labels, Medium uses smaller food marks and concise port symbols, and Far hides routine labels while keeping layout, selection outlines, and problem markers visible. Hover, selection, previews, and requested diagnosis restore needed detail at any zoom. Hysteresis stabilizes transitions. A compact Factory Issues count includes stabilized Needs Property, Invalid Recipe, and Output Blocked feedback. The Issues panel lists machine, port, and corrective action; choosing one pans to the machine and shows its existing port highlight, trace, and tooltip. Player camera input interrupts the pan. Ordinary Needs Input is excluded by default.
 
 ---
 

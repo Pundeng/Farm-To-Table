@@ -1,6 +1,7 @@
 using FantasyShapez.Buildings;
 using FantasyShapez.Grid;
 using FantasyShapez.Food;
+using FantasyShapez.CameraControl;
 using UnityEngine;
 
 namespace FantasyShapez.Logistics
@@ -17,6 +18,30 @@ namespace FantasyShapez.Logistics
         private BeltCell cell;
         private GameObject itemVisual;
         private TextMesh itemLabel;
+        private WorldInformationLevel informationLevel;
+        private bool forceItemDetail;
+
+        public static float ItemVisualScale(WorldInformationLevel level, bool forceDetail) =>
+            forceDetail || level == WorldInformationLevel.Close ? 0.32f :
+            level == WorldInformationLevel.Medium ? 0.24f : 0.12f;
+
+        public static bool ShowItemIdentity(WorldInformationLevel level, bool forceDetail) =>
+            forceDetail || level == WorldInformationLevel.Close;
+
+        public void SetInformationLevel(WorldInformationLevel level, bool forceDetail)
+        {
+            informationLevel = level;
+            forceItemDetail = forceDetail;
+            if (itemVisual != null)
+            {
+                itemVisual.transform.localScale = Vector3.one *
+                    ItemVisualScale(level, forceDetail);
+                RefreshItemAppearance();
+            }
+            if (itemLabel != null)
+                itemLabel.gameObject.SetActive(hasItem &&
+                    ShowItemIdentity(level, forceDetail));
+        }
 
         // Rebuilding intentionally discards any item currently carried by this Belt.
         public bool CanRemove => true;
@@ -77,7 +102,8 @@ namespace FantasyShapez.Logistics
             runeDebug = beltCell.Item?.Item?.ToString() ?? string.Empty;
 
             itemVisual.SetActive(hasItem);
-            itemLabel.gameObject.SetActive(hasItem);
+            itemLabel.gameObject.SetActive(hasItem &&
+                ShowItemIdentity(informationLevel, forceItemDetail));
 
             if (!hasItem)
             {
@@ -86,17 +112,14 @@ namespace FantasyShapez.Logistics
 
             if (beltCell.Item.Item is FoodItemData food)
             {
-                itemVisual.GetComponent<SpriteRenderer>().color = FoodColor(food);
-                itemVisual.transform.rotation = Quaternion.Euler(0f, 0f,
-                    food.Kind == FoodItemKind.ProcessedFood ? 45f : 0f);
                 itemLabel.text = FoodLabel(food);
             }
             else
             {
-                itemVisual.GetComponent<SpriteRenderer>().color = Color.white;
-                itemVisual.transform.rotation = Quaternion.identity;
                 itemLabel.text = string.Empty;
             }
+
+            RefreshItemAppearance();
 
             Vector2 startOffset = -(Vector2)beltCell.Item.EntryDirection.ToOffset() * 0.5f;
             Vector2 endOffset = (Vector2)beltCell.Direction.ToOffset() * 0.5f;
@@ -108,6 +131,18 @@ namespace FantasyShapez.Logistics
             itemLabel.transform.position = itemVisual.transform.position +
                 new Vector3(0f, 0f, -0.03f);
             itemLabel.transform.rotation = Quaternion.identity;
+        }
+
+        private void RefreshItemAppearance()
+        {
+            if (!hasItem || itemVisual == null || cell?.Item == null) return;
+            bool far = informationLevel == WorldInformationLevel.Far && !forceItemDetail;
+            FoodItemData food = cell.Item.Item as FoodItemData;
+            itemVisual.GetComponent<SpriteRenderer>().color = far
+                ? new Color(0.84f, 0.84f, 0.78f)
+                : food != null ? FoodColor(food) : Color.white;
+            itemVisual.transform.rotation = Quaternion.Euler(0f, 0f,
+                !far && food?.Kind == FoodItemKind.ProcessedFood ? 45f : 0f);
         }
 
         private void CreateDirectionArrow()

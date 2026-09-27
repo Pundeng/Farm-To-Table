@@ -325,6 +325,7 @@ namespace FantasyShapez.Buildings
         private float cellSize;
 
         public MachineFeedback Feedback => feedback;
+        public bool IsEmphasized => Time.time < emphasisUntil;
 
         public void Initialize(float size)
         {
