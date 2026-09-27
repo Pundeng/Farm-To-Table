@@ -128,6 +128,10 @@ namespace FantasyShapez.Buildings
         private bool pasteAwaitingMouseRelease;
         private PropertySupplyPlayMode propertySupply;
         private RecipeDiscoveryPanel recipeDiscoveryPanel;
+        private DiscoveredRecipeKind? recipeShortcutKind;
+        private Rect recipeShortcutRect;
+        private BuildingPlacement recipeShortcutPlacement;
+        private float recipeShortcutKeepUntil;
         private MarketPanel marketPanel;
 
         public PropertySupplyPlayMode PropertySupply => propertySupply;
@@ -148,6 +152,7 @@ namespace FantasyShapez.Buildings
         public bool IsFoodDemo => foodDemoControls;
         public DemoPanel OpenDemoPanel => demoPanel;
         public bool IsSystemMenuOpen => systemMenuOpen;
+        public bool HasOrderCompletionCard => activeCompletionCard != null;
         public bool IsDevInspectorOpen => devInspectorOpen;
         public bool BlocksAllWorldInput => foodDemoControls &&
             (systemMenuOpen || activeCompletionCard != null ||
@@ -459,6 +464,7 @@ namespace FantasyShapez.Buildings
             }
             if (foodDemoControls)
             {
+                RefreshRecipeShortcut();
                 if (Keyboard.current.f3Key.wasPressedThisFrame)
                     devInspectorOpen = !devInspectorOpen;
                 if (Keyboard.current.escapeKey.wasPressedThisFrame && HandleDemoEscape())
@@ -477,7 +483,16 @@ namespace FantasyShapez.Buildings
                 }
                 if (BlocksAllWorldInput)
                 {
+                    recipeShortcutKind = null;
                     ClearRightClickRemoval();
+                    return;
+                }
+                if (recipeShortcutKind.HasValue &&
+                    Mouse.current.leftButton.wasPressedThisFrame &&
+                    recipeShortcutRect.Contains(GetGuiPointer()))
+                {
+                    recipeDiscoveryPanel?.OpenForMachine(recipeShortcutKind.Value);
+                    recipeShortcutKind = null;
                     return;
                 }
                 HandleDemoHotbarShortcuts();
@@ -1724,20 +1739,32 @@ namespace FantasyShapez.Buildings
 
                 if (component is Processor processor)
                 {
-                    if (foodDemoControls) return;
+                    if (foodDemoControls)
+                    {
+                        recipeDiscoveryPanel?.OpenForMachine(DiscoveredRecipeKind.Processing);
+                        return;
+                    }
                     engraverUpgradePanel?.ShowProcessor(processor);
                     return;
                 }
 
                 if (component is BasicMixer mixer)
                 {
-                    if (foodDemoControls) return;
+                    if (foodDemoControls)
+                    {
+                        recipeDiscoveryPanel?.OpenForMachine(DiscoveredRecipeKind.Mixing);
+                        return;
+                    }
                     engraverUpgradePanel?.ShowMixer(mixer);
                     return;
                 }
                 if (component is Cutter cutter)
                 {
-                    if (foodDemoControls) return;
+                    if (foodDemoControls)
+                    {
+                        recipeDiscoveryPanel?.OpenForMachine(DiscoveredRecipeKind.Cutting);
+                        return;
+                    }
                     engraverUpgradePanel?.ShowCutter(cutter);
                     return;
                 }
@@ -1977,6 +2004,11 @@ namespace FantasyShapez.Buildings
 
         private bool HandleDemoEscape()
         {
+            if (recipeDiscoveryPanel?.HasModal == true)
+            {
+                recipeDiscoveryPanel.DismissModal();
+                return true;
+            }
             if (activeCompletionCard != null)
             {
                 ContinueAfterOrder();
@@ -2095,6 +2127,44 @@ namespace FantasyShapez.Buildings
             return -1;
         }
 
+        public bool CanBuildRecipeMachine(DiscoveredRecipeKind kind,
+            out string requirement)
+        {
+            string id = kind switch
+            {
+                DiscoveredRecipeKind.Processing => nameof(Processor),
+                DiscoveredRecipeKind.Mixing => nameof(BasicMixer),
+                DiscoveredRecipeKind.Cutting => nameof(Cutter),
+                _ => null
+            };
+            int index = id == null ? -1 : FindBuildingOption(id);
+            if (index < 0 || buildingOptions[index]?.Definition == null)
+            {
+                requirement = "Machine unavailable in this scene.";
+                return false;
+            }
+            if (IsMachineLocked(buildingOptions[index]))
+            {
+                requirement = GetMachineUnlockRequirement(buildingOptions[index]);
+                return false;
+            }
+            requirement = null;
+            return true;
+        }
+
+        public bool SelectRecipeMachine(DiscoveredRecipeKind kind)
+        {
+            if (!CanBuildRecipeMachine(kind, out _)) return false;
+            string id = kind switch
+            {
+                DiscoveredRecipeKind.Processing => nameof(Processor),
+                DiscoveredRecipeKind.Mixing => nameof(BasicMixer),
+                _ => nameof(Cutter)
+            };
+            SelectBuilding(FindBuildingOption(id));
+            return true;
+        }
+
         private Rect HotbarRect => new(
             Mathf.Max(8f, (Screen.width - Mathf.Min(424f, Screen.width - 16f)) * 0.5f),
             Mathf.Max(8f, Screen.height - 56f),
@@ -2190,6 +2260,8 @@ namespace FantasyShapez.Buildings
         {
             if (!foodDemoControls || Mouse.current == null) return false;
             return systemMenuOpen ||
+                recipeShortcutKind.HasValue &&
+                    recipeShortcutRect.Contains(GetGuiPointer()) ||
                 IsPointerOverForegroundPanel() ||
                 HotbarRect.Contains(GetGuiPointer()) ||
                 UtilityRect.Contains(GetGuiPointer());
@@ -2279,10 +2351,15 @@ namespace FantasyShapez.Buildings
             if (Time.time < guidanceUntil && !string.IsNullOrEmpty(contextualGuidance))
                 GUI.Box(new Rect(hotbar.x, hotbar.y - 96f, hotbar.width, 48f),
                     contextualGuidance);
+            if (recipeShortcutKind.HasValue && !BlocksAllWorldInput)
+                GUI.Box(recipeShortcutRect, "Recipes");
 
             Rect utility = UtilityRect;
             if (GUI.Button(new Rect(utility.x, utility.y, 46f, 38f), "Recipe"))
-                OpenPanel(DemoPanel.Recipe);
+            {
+                if (recipeDiscoveryPanel != null) recipeDiscoveryPanel.OpenAll();
+                else OpenPanel(DemoPanel.Recipe);
+            }
             if (GUI.Button(new Rect(utility.x + 49f, utility.y, 46f, 38f), "Help"))
                 OpenPanel(DemoPanel.Help);
             if (GUI.Button(new Rect(utility.x + 98f, utility.y, 46f, 38f), "System"))
@@ -2302,7 +2379,7 @@ namespace FantasyShapez.Buildings
                     activeCompletionCard == null;
                 DrawSystemMenu();
             }
-            if (activeCompletionCard != null)
+            if (activeCompletionCard != null && recipeDiscoveryPanel?.HasModal != true)
             {
                 GUI.enabled = previousEnabled;
                 DrawOrderCompletionCard();
@@ -2432,6 +2509,54 @@ namespace FantasyShapez.Buildings
             if (!string.IsNullOrEmpty(marketPanel?.SaveMessage))
                 GUILayout.Label(marketPanel.SaveMessage);
             GUILayout.EndArea();
+        }
+
+        private void RefreshRecipeShortcut()
+        {
+            if (BlocksAllWorldInput || isPlacementModeActive ||
+                isGroupPasteModeActive || demoPanel != DemoPanel.None ||
+                cropPickerPlot != null || Camera.main == null)
+            {
+                recipeShortcutKind = null;
+                recipeShortcutPlacement = null;
+                return;
+            }
+            if (recipeShortcutKind.HasValue &&
+                recipeShortcutPlacement != null &&
+                buildingInstances.ContainsKey(recipeShortcutPlacement))
+            {
+                if (occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
+                        out BuildingPlacement hovered) &&
+                    hovered == recipeShortcutPlacement)
+                    recipeShortcutKeepUntil = Time.time + 0.5f;
+                if (recipeShortcutRect.Contains(GetGuiPointer()) ||
+                    Time.time < recipeShortcutKeepUntil) return;
+            }
+            recipeShortcutKind = null;
+            recipeShortcutPlacement = null;
+            if (!occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
+                    out BuildingPlacement placement) ||
+                !buildingInstances.TryGetValue(placement, out PlacedBuilding building))
+                return;
+            if (building.TryGetComponent(out Processor _))
+                recipeShortcutKind = DiscoveredRecipeKind.Processing;
+            else if (building.TryGetComponent(out BasicMixer _))
+                recipeShortcutKind = DiscoveredRecipeKind.Mixing;
+            else if (building.TryGetComponent(out Cutter _))
+                recipeShortcutKind = DiscoveredRecipeKind.Cutting;
+            if (!recipeShortcutKind.HasValue) return;
+            Vector3 screen = Camera.main.WorldToScreenPoint(building.transform.position);
+            if (screen.z <= 0f)
+            {
+                recipeShortcutKind = null;
+                return;
+            }
+            recipeShortcutPlacement = placement;
+            recipeShortcutKeepUntil = Time.time + 0.5f;
+            recipeShortcutRect = new Rect(
+                Mathf.Clamp(screen.x - 35f, 8f, Screen.width - 78f),
+                Mathf.Clamp(Screen.height - screen.y + 24f, 8f,
+                    Screen.height - 32f), 70f, 24f);
         }
 
         private void DrawOrderCompletionCard()

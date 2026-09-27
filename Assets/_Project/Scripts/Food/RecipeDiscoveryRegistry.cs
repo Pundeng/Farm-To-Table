@@ -85,6 +85,7 @@ namespace FantasyShapez.Food
     {
         private readonly HashSet<DiscoveredRecipe> known = new();
         private readonly List<DiscoveredRecipe> discovered = new();
+        private readonly HashSet<DiscoveredRecipe> unseen = new();
         private readonly IReadOnlyList<DiscoveredRecipe> readOnlyDiscovered;
 
         public RecipeDiscoveryRegistry()
@@ -93,13 +94,18 @@ namespace FantasyShapez.Food
         }
 
         public IReadOnlyList<DiscoveredRecipe> DiscoveredRecipes => readOnlyDiscovered;
+        public IReadOnlyCollection<DiscoveredRecipe> UnseenRecipes => unseen;
+        public bool IsNew(DiscoveredRecipe recipe) => recipe != null && unseen.Contains(recipe);
+        public bool MarkViewed(DiscoveredRecipe recipe) =>
+            recipe != null && unseen.Remove(recipe);
         public event Action<DiscoveredRecipe> Discovered;
 
         public bool Record(ProcessingRecipe recipe) => Record(new DiscoveredRecipe(recipe));
         public bool Record(MixingRecipe recipe) => Record(new DiscoveredRecipe(recipe));
         public bool Record(CuttingRecipe recipe) => Record(new DiscoveredRecipe(recipe));
 
-        public void Restore(IReadOnlyList<DiscoveredRecipe> recipes)
+        public void Restore(IReadOnlyList<DiscoveredRecipe> recipes,
+            IReadOnlyList<DiscoveredRecipe> unseenRecipes = null)
         {
             if (recipes == null)
             {
@@ -115,13 +121,23 @@ namespace FantasyShapez.Food
                 }
             }
 
+            var uniqueUnseen = new HashSet<DiscoveredRecipe>();
+            foreach (DiscoveredRecipe recipe in unseenRecipes ??
+                Array.Empty<DiscoveredRecipe>())
+                if (recipe == null || !unique.Contains(recipe) ||
+                    !uniqueUnseen.Add(recipe))
+                    throw new ArgumentException("Invalid unseen discovery.",
+                        nameof(unseenRecipes));
+
             known.Clear();
             discovered.Clear();
+            unseen.Clear();
             foreach (DiscoveredRecipe recipe in recipes)
             {
                 known.Add(recipe);
                 discovered.Add(recipe);
             }
+            foreach (DiscoveredRecipe recipe in uniqueUnseen) unseen.Add(recipe);
         }
 
         private bool Record(DiscoveredRecipe recipe)
@@ -132,6 +148,7 @@ namespace FantasyShapez.Food
             }
 
             discovered.Add(recipe);
+            unseen.Add(recipe);
             Discovered?.Invoke(recipe);
             return true;
         }
