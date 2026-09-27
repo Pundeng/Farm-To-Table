@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FantasyShapez.Buildings;
+using FantasyShapez.CameraControl;
 using FantasyShapez.Grid;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -16,6 +17,14 @@ namespace FantasyShapez.Food
         [Min(1)] public int capacity = 4;
     }
 
+    [Serializable]
+    public sealed class PropertyVisualDefinition
+    {
+        public Sprite source;
+        public Sprite collector;
+        public Sprite pipe;
+    }
+
     // Temporary Play Mode controls for source, pipe, and test-demand placement.
     public sealed class PropertySupplyPlayMode
     {
@@ -26,6 +35,8 @@ namespace FantasyShapez.Food
         private readonly GridHoverHighlight hover;
         private readonly GridOccupancy occupancy;
         private readonly Transform visualParent;
+        private readonly PropertyVisualDefinition visualDefinition;
+        private readonly FactoryCameraController cameraController;
         private readonly Dictionary<Vector2Int, BuildingPlacement> reservations = new();
         private readonly Dictionary<Vector2Int, GameObject> visuals = new();
         private readonly Dictionary<Vector2Int, GameObject> processorPortVisuals = new();
@@ -46,13 +57,17 @@ namespace FantasyShapez.Food
 
         public PropertySupplyPlayMode(GridSystem grid, GridHoverHighlight hover,
             GridOccupancy occupancy, Transform parent,
-            IReadOnlyList<PropertySourceSetup> setups, bool debugTools = true)
+            IReadOnlyList<PropertySourceSetup> setups, bool debugTools = true,
+            PropertyVisualDefinition visualDefinition = null)
         {
             this.debugTools = debugTools;
             this.grid = grid;
             this.hover = hover;
             this.occupancy = occupancy;
             visualParent = parent;
+            this.visualDefinition = visualDefinition;
+            cameraController = Camera.main != null
+                ? Camera.main.GetComponent<FactoryCameraController>() : null;
             if (setups == null)
             {
                 return;
@@ -493,9 +508,15 @@ namespace FantasyShapez.Food
                 marker.transform.SetParent(pipePreview.transform, false);
                 marker.transform.position = grid.GridToWorld(cell) +
                     new Vector3(0f, 0f, -0.08f);
-                marker.transform.localScale = Vector3.one * grid.CellSize * 0.55f;
                 SpriteRenderer renderer = marker.AddComponent<SpriteRenderer>();
-                renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
+                Sprite artwork = visualDefinition?.pipe;
+                renderer.sprite = artwork != null ? artwork :
+                    BuildingVisualFactory.PlaceholderSprite;
+                Vector2 previewSize = artwork != null ? artwork.bounds.size :
+                    Vector2.one;
+                marker.transform.localScale = new Vector3(
+                    grid.CellSize * 0.55f / Mathf.Max(0.001f, previewSize.x),
+                    grid.CellSize * 0.55f / Mathf.Max(0.001f, previewSize.y), 1f);
                 renderer.color = valid[index]
                     ? new Color(0.3f, 0.95f, 0.5f, 0.65f)
                     : new Color(1f, 0.25f, 0.2f, 0.7f);
@@ -664,13 +685,29 @@ namespace FantasyShapez.Food
                 PropertyConnectionKind.Pipe => 0.42f,
                 _ => 0.68f
             };
-            visual.transform.localScale = Vector3.one * (grid.CellSize * size);
             SpriteRenderer renderer = visual.AddComponent<SpriteRenderer>();
-            renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
+            Sprite artwork = GetVisualSprite(connection.Kind);
+            renderer.sprite = artwork != null ? artwork :
+                BuildingVisualFactory.PlaceholderSprite;
+            Vector2 artSize = artwork != null ? artwork.bounds.size :
+                Vector2.one;
+            visual.transform.localScale = new Vector3(
+                grid.CellSize * size / Mathf.Max(0.001f, artSize.x),
+                grid.CellSize * size / Mathf.Max(0.001f, artSize.y), 1f);
             renderer.sortingOrder = 12;
             renderer.color = GetColor(connection.Property);
+            if (connection.Kind == PropertyConnectionKind.Collector)
+                visual.AddComponent<PropertyActivityVisual>().Initialize(grid.CellSize);
             visuals.Add(cell, visual);
         }
+
+        private Sprite GetVisualSprite(PropertyConnectionKind kind) => kind switch
+        {
+            PropertyConnectionKind.Source => visualDefinition?.source,
+            PropertyConnectionKind.Collector => visualDefinition?.collector,
+            PropertyConnectionKind.Pipe => visualDefinition?.pipe,
+            _ => null
+        };
 
         private GameObject CreateStatusVisual(Vector2Int cell)
         {
@@ -715,6 +752,15 @@ namespace FantasyShapez.Food
                 }
 
                 visual.GetComponent<SpriteRenderer>().color = color;
+                if (connection.Kind == PropertyConnectionKind.Collector &&
+                    visual.TryGetComponent(out PropertyActivityVisual activity))
+                    activity.SetState(network.IsConnectedToSource(connection.Cell) &&
+                        network.TryGetStatus(connection.SourceCell,
+                            out PropertySupplyStatus collectorStatus) &&
+                        collectorStatus.IsWithinCapacity &&
+                        collectorStatus.ConnectedConsumers > 0,
+                        cameraController?.InformationLevel ?? WorldInformationLevel.Close,
+                        hover.HoveredCell == connection.Cell && !IsPointerOverPanel());
             }
 
             foreach (KeyValuePair<Vector2Int, GameObject> port in processorPortVisuals)

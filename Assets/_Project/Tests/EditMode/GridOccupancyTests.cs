@@ -940,6 +940,91 @@ namespace FantasyShapez.Tests.EditMode
         }
     }
 
+    public sealed class VisualFoundationTests
+    {
+        [Test]
+        public void BuildingVisual_UsesSpriteOrFootprintFallbackWithoutChangingFootprint()
+        {
+            var parent = new GameObject("Visual test parent");
+            var texture = new Texture2D(2, 2);
+            var artwork = Sprite.Create(texture, new Rect(0, 0, 2, 2),
+                new Vector2(0.5f, 0.5f));
+            try
+            {
+                var definition = new BuildingDefinition();
+                Vector2Int footprint = definition.Footprint;
+                System.Type factory = typeof(BuildingDefinition).Assembly.GetType(
+                    "FantasyShapez.Buildings.BuildingVisualFactory");
+                MethodInfo create = factory.GetMethod("Create",
+                    BindingFlags.Public | BindingFlags.Static);
+                var fallback = (GameObject)create.Invoke(null,
+                    new object[] { definition, parent.transform, 1f, 10 });
+                Assert.That(definition.UsesPlaceholderVisual, Is.True);
+                Assert.That(fallback.GetComponentInChildren<SpriteRenderer>().sprite,
+                    Is.Not.Null);
+                UnityEngine.Object.DestroyImmediate(fallback);
+
+                typeof(BuildingDefinition).GetField("visualSprite",
+                    BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(
+                        definition, artwork);
+                var visual = (GameObject)create.Invoke(null,
+                    new object[] { definition, parent.transform, 1f, 10 });
+                Assert.That(definition.UsesPlaceholderVisual, Is.False);
+                Assert.That(visual.GetComponentInChildren<SpriteRenderer>().sprite,
+                    Is.SameAs(artwork));
+                Assert.That(definition.Footprint, Is.EqualTo(footprint));
+                typeof(BuildingDefinition).GetField("keepVisualUpright",
+                    BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(
+                        definition, true);
+                factory.GetMethod("ApplyRotation", BindingFlags.Public |
+                    BindingFlags.Static)?.Invoke(null,
+                        new object[] { visual, definition, BuildingRotation.Degrees90 });
+                Assert.That(visual.transform.localEulerAngles.z,
+                    Is.EqualTo(90f).Within(0.01f));
+                UnityEngine.Object.DestroyImmediate(visual);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(parent);
+                UnityEngine.Object.DestroyImmediate(artwork);
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+        }
+
+        [Test]
+        public void FoodVisual_UsesStableIdAndLeavesUnknownFoodForFallback()
+        {
+            var host = new GameObject("Food visual test");
+            var texture = new Texture2D(2, 2);
+            var artwork = Sprite.Create(texture, new Rect(0, 0, 2, 2),
+                new Vector2(0.5f, 0.5f));
+            try
+            {
+                var coordinator = host.AddComponent<BeltTransportCoordinator>();
+                var visual = new FoodVisualDefinition();
+                typeof(FoodVisualDefinition).GetField("foodId",
+                    BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(
+                        visual, "apple");
+                typeof(FoodVisualDefinition).GetField("sprite",
+                    BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(
+                        visual, artwork);
+                typeof(BeltTransportCoordinator).GetField("foodVisuals",
+                    BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(
+                        coordinator, new[] { visual });
+                Assert.That(coordinator.GetFoodSprite(new FoodItemData("apple",
+                    FoodItemKind.RawIngredient)), Is.SameAs(artwork));
+                Assert.That(coordinator.GetFoodSprite(new FoodItemData("new food",
+                    FoodItemKind.ProcessedFood)), Is.Null);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(host);
+                UnityEngine.Object.DestroyImmediate(artwork);
+                UnityEngine.Object.DestroyImmediate(texture);
+            }
+        }
+    }
+
     public sealed class MachineFeedbackTests
     {
         [Test]
