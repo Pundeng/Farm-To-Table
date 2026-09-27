@@ -686,7 +686,6 @@ MonoBehaviour:
   hoverHighlight: {fileID: 4003}
   placementPreview: {fileID: 5002}
   engraverUpgradePanel: {fileID: 6011}
-  hub: {fileID: 0}
   market: {fileID: 200000002}
   foodDemoControls: 1
   propertySources:
@@ -855,7 +854,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 04a437939d932cc4da7306bf57a2ec07, type: 3}
   m_Name:
   m_EditorClassIdentifier: FantasyShapez.Runtime::FantasyShapez.UI.ObjectivePanel
-  hub: {fileID: 0}
 --- !u!1 &362208086
 GameObject:
   m_ObjectHideFlags: 0

@@ -5,7 +5,6 @@ using System.Reflection;
 using FantasyShapez.Buildings;
 using FantasyShapez.Food;
 using FantasyShapez.Logistics;
-using FantasyShapez.Runes;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -448,11 +447,7 @@ namespace FantasyShapez.Tests.EditMode
                 Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.ValidateAgainstScene(
                     world, options, Array.Empty<PropertySourceSetup>(), regions, keys,
                     Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
-                    new Vector2Int(10, 4), new Vector2Int(10, 1)));
-                Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.ValidateAgainstScene(
-                    world, options, Array.Empty<PropertySourceSetup>(), regions, keys,
-                    Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
-                    new Vector2Int(10, 4), null));
+                    new Vector2Int(10, 4)));
 
                 world.buildings = new[]
                 {
@@ -467,7 +462,7 @@ namespace FantasyShapez.Tests.EditMode
                     FactoryWorldSnapshotValidator.ValidateAgainstScene(world, options,
                         Array.Empty<PropertySourceSetup>(), regions, keys,
                         Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
-                        new Vector2Int(10, 4), new Vector2Int(10, 1)));
+                        new Vector2Int(10, 4)));
             }
             finally
             {
@@ -477,11 +472,13 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void ActiveRuneTransport_IsRejectedByFoodSnapshotCodec()
+        public void NonFoodTransport_IsRejectedByFoodSnapshotCodec()
         {
             Assert.Throws<InvalidOperationException>(() =>
-                SavedFood.FromTransport(new RuneData(RuneBaseShape.Circle)));
+                SavedFood.FromTransport(new NonFoodItem()));
         }
+
+        private sealed class NonFoodItem : ITransportItem { }
 
         [Test]
         public void ReconstructionOrder_PlacesPlotBeforeOverlayRegardlessOfFileOrder()

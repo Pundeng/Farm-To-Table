@@ -5,8 +5,6 @@ using FantasyShapez.Food;
 using FantasyShapez.CameraControl;
 using FantasyShapez.Grid;
 using FantasyShapez.Logistics;
-using FantasyShapez.Objectives;
-using FantasyShapez.Production;
 using FantasyShapez.UI;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -57,7 +55,6 @@ namespace FantasyShapez.Buildings
         [SerializeField] private GridHoverHighlight hoverHighlight = null;
         [SerializeField] private BuildingPreview placementPreview = null;
         [SerializeField] private ObjectivePanel engraverUpgradePanel = null;
-        [SerializeField] private Hub hub = null;
         [SerializeField] private Market market = null;
         [SerializeField] private bool foodDemoControls;
         [SerializeField, Tooltip("Second HUD resource line; gameplay source is not finalized.")]
@@ -137,8 +134,6 @@ namespace FantasyShapez.Buildings
         private int selectedBuildingIndex;
         private bool isPlacementModeActive;
         private string constructionMessage;
-        private Engraver.RecipeConfiguration? copiedEngraverRecipe;
-        private ElementInfuser.RecipeConfiguration? copiedInfuserRecipe;
         private BuildingGroupCopy copiedGroup;
         private BuildingGroupCopy activeGroup;
         private readonly List<BuildingPlacement> moveSources = new();
@@ -231,13 +226,6 @@ namespace FantasyShapez.Buildings
                 throw new InvalidOperationException("Factory world is not initialized.");
             }
 
-            if (hub != null &&
-                (hub.AccelerationRuneCount > 0 || hub.Progress?.HasProgress == true))
-            {
-                throw new InvalidOperationException(
-                    "Factory snapshot cannot save active legacy RuneData Hub progress.");
-            }
-
             var saved = new List<SavedBuilding>(buildingInstances.Count);
             foreach (KeyValuePair<BuildingPlacement, PlacedBuilding> entry in buildingInstances)
             {
@@ -300,8 +288,7 @@ namespace FantasyShapez.Buildings
 
             FactoryWorldSnapshotValidator.ValidateAgainstScene(world, buildingOptions,
                 propertySources, market.Regions, savedUnlocks, processorRecipes,
-                mixerRecipes, market.InputCell, hub != null ? hub.InputCell :
-                    (Vector2Int?)null, cutterRecipes);
+                mixerRecipes, market.InputCell, cutterRecipes);
         }
 
         public void RestoreWorldSnapshot(FactoryWorldData world,
@@ -322,7 +309,7 @@ namespace FantasyShapez.Buildings
                     candidate?.Definition?.Id == saved.definitionId);
                 Vector2Int anchor = new(saved.x, saved.y);
                 if (option == null || !CanPlaceBuilding(option, anchor, saved.rotation) ||
-                    !PlaceBuilding(option, anchor, saved.rotation, null, null,
+                    !PlaceBuilding(option, anchor, saved.rotation,
                         out BuildingPlacement placement))
                 {
                     throw new InvalidOperationException(
@@ -359,14 +346,6 @@ namespace FantasyShapez.Buildings
             if (foodDemoControls)
                 blueprintLibrary = new BlueprintLibrary(System.IO.Path.Combine(
                     Application.persistentDataPath, "cozy-food-factory-blueprints.json"));
-            if (hub != null && !occupancy.TryRegister(
-                    nameof(Hub), hub.InputCell, hub.Footprint,
-                    BuildingRotation.Degrees0, out _))
-            {
-                throw new InvalidOperationException(
-                    $"The Hub footprint at {hub.InputCell} could not be reserved.");
-            }
-
             if (market != null && !occupancy.TryRegister(
                     nameof(Market),
                     market.InputCell,
@@ -934,17 +913,10 @@ namespace FantasyShapez.Buildings
                 SelectBuilding(7);
             }
 
-            if (!Keyboard.current.ctrlKey.isPressed &&
-                Keyboard.current.cKey.wasPressedThisFrame)
-            {
-                TryCopyHoveredMachine();
-            }
-
             if (Keyboard.current.bKey.wasPressedThisFrame)
             {
                 isPlacementModeActive = true;
                 selectedRotation = GetRememberedRotation(GetSelectedOption());
-                ClearCopiedRecipe();
                 beltDragPlanner.Reset();
                 placementDrag.Reset();
             }
@@ -957,7 +929,6 @@ namespace FantasyShapez.Buildings
                 selection.Clear();
                 RefreshSelectionHighlights();
                 HideSelectionArea();
-                ClearCopiedRecipe();
                 placementPreview.Hide();
                 beltDragPlanner.Reset();
                 placementDrag.Reset();
@@ -1107,18 +1078,10 @@ namespace FantasyShapez.Buildings
                     constructionMessage = $"Cannot copy {placement.DefinitionId}.";
                     return false;
                 }
-                if (!foodDemoControls && instance.GetComponent<Harvester>() != null)
-                {
-                    constructionMessage = "Harvester copying is unavailable in Prototype.";
-                    return false;
-                }
-
                 sourceItems.Add(new BuildingGroupCopyItem(
                     option,
                     placement.AnchorCell,
                     placement.Rotation,
-                    instance.GetComponent<Engraver>()?.CaptureRecipeConfiguration(),
-                    instance.GetComponent<ElementInfuser>()?.CaptureRecipeConfiguration(),
                     instance.GetComponent<FarmPlot>()?.SelectedCrop?.Id));
             }
 
@@ -1312,7 +1275,7 @@ namespace FantasyShapez.Buildings
                 foreach (BuildingGroupCopyItem item in activeGroup.Items)
                 {
                     if (!PlaceBuilding(item.Option, anchorCell + item.Offset,
-                            item.Rotation, item.EngraverRecipe, item.InfuserRecipe,
+                            item.Rotation,
                             out BuildingPlacement placement))
                     {
                         placementFailed = true;
@@ -1322,28 +1285,6 @@ namespace FantasyShapez.Buildings
                     placedItems.Add(placement);
                 }
 
-                if (!placementFailed)
-                {
-                    for (int index = 0; index < moveSources.Count; index++)
-                    {
-                        RuneExtractor sourceExtractor = buildingInstances[moveSources[index]]
-                            .GetComponent<RuneExtractor>();
-                        if (sourceExtractor == null)
-                        {
-                            continue;
-                        }
-
-                        RuneExtractor movedExtractor = buildingInstances[placedItems[index]]
-                            .GetComponent<RuneExtractor>();
-                        if (movedExtractor == null)
-                        {
-                            throw new InvalidOperationException(
-                                "Moved extractor prefab has no RuneExtractor component.");
-                        }
-
-                        movedExtractor.CopyMoveStateFrom(sourceExtractor);
-                    }
-                }
             }
             catch (Exception exception)
             {
@@ -1465,8 +1406,7 @@ namespace FantasyShapez.Buildings
                 foreach (BuildingGroupCopyItem item in ordered)
                 {
                     if (!PlaceBuilding(item.Option, anchor + item.Offset, item.Rotation,
-                            item.EngraverRecipe, item.InfuserRecipe,
-                            out BuildingPlacement placed))
+                             out BuildingPlacement placed))
                     {
                         failed = true;
                         break;
@@ -2094,7 +2034,6 @@ namespace FantasyShapez.Buildings
                     ConstructionLayout before = foodDemoControls
                         ? CaptureConstructionLayout() : null;
                     if (PlaceBuilding(option, anchorCell, selectedRotation,
-                            copiedEngraverRecipe, copiedInfuserRecipe,
                             out BuildingPlacement placed) && foodDemoControls &&
                         option.Definition.Id == nameof(FarmPlot) &&
                         buildingInstances[placed].TryGetComponent(out FarmPlot plot))
@@ -2191,20 +2130,6 @@ namespace FantasyShapez.Buildings
 
             foreach (MonoBehaviour component in instance.GetComponents<MonoBehaviour>())
             {
-                if (component is FantasyShapez.Production.Engraver engraver)
-                {
-                    if (foodDemoControls) OpenPanel(DemoPanel.Machine);
-                    engraverUpgradePanel?.ShowEngraver(engraver);
-                    return;
-                }
-
-                if (component is FantasyShapez.Production.ElementInfuser infuser)
-                {
-                    if (foodDemoControls) OpenPanel(DemoPanel.Machine);
-                    engraverUpgradePanel?.ShowElementInfuser(infuser);
-                    return;
-                }
-
                 if (component is FantasyShapez.Food.FarmPlot farmPlot)
                 {
                     if (foodDemoControls) OpenPanel(DemoPanel.Machine);
@@ -2267,16 +2192,13 @@ namespace FantasyShapez.Buildings
             Vector2Int anchorCell,
             BuildingRotation rotation)
         {
-            return PlaceBuilding(option, anchorCell, rotation,
-                copiedEngraverRecipe, copiedInfuserRecipe, out _);
+            return PlaceBuilding(option, anchorCell, rotation, out _);
         }
 
         private bool PlaceBuilding(
             BuildingPlacementOption option,
             Vector2Int anchorCell,
             BuildingRotation rotation,
-            Engraver.RecipeConfiguration? engraverRecipe,
-            ElementInfuser.RecipeConfiguration? infuserRecipe,
             out BuildingPlacement placement)
         {
             BuildingDefinition definition = option.Definition;
@@ -2302,8 +2224,7 @@ namespace FantasyShapez.Buildings
 
             try
             {
-                PlacedBuilding instance = CreateBuildingInstance(
-                    option, placement, engraverRecipe, infuserRecipe);
+                PlacedBuilding instance = CreateBuildingInstance(option, placement);
                 buildingInstances.Add(placement, instance);
                 MachineFeedbackView view = instance.GetComponent<MachineFeedbackView>();
                 if (view != null) feedbackViews.Add(placement, view);
@@ -2318,9 +2239,7 @@ namespace FantasyShapez.Buildings
 
         private PlacedBuilding CreateBuildingInstance(
             BuildingPlacementOption option,
-            BuildingPlacement placement,
-            Engraver.RecipeConfiguration? engraverRecipe,
-            ElementInfuser.RecipeConfiguration? infuserRecipe)
+            BuildingPlacement placement)
         {
             BuildingDefinition definition = option.Definition;
             GameObject buildingObject = definition.InstancePrefab != null
@@ -2357,17 +2276,6 @@ namespace FantasyShapez.Buildings
                     definition.PlacedColor.a);
                 BuildingVisualFactory.CreatePortMarkers(buildingObject.transform,
                     option.PortPreviews, gridSystem.CellSize, placement.Rotation);
-                if (engraverRecipe.HasValue)
-                {
-                    buildingObject.GetComponent<Engraver>()?.ApplyRecipeConfiguration(
-                        engraverRecipe.Value);
-                }
-                else if (infuserRecipe.HasValue)
-                {
-                    buildingObject.GetComponent<ElementInfuser>()?.ApplyRecipeConfiguration(
-                        infuserRecipe.Value);
-                }
-
                 option.PlacementBehavior?.InitializePlacedBuilding(buildingObject, placement);
                 if (foodDemoControls && buildingObject.TryGetComponent(out FarmPlot farmPlot))
                 {
@@ -2495,7 +2403,6 @@ namespace FantasyShapez.Buildings
                 propertySupply?.ExitTool();
             }
             selectedRotation = GetRememberedRotation(buildingOptions[index]);
-            ClearCopiedRecipe();
             isPlacementModeActive = true;
             beltDragPlanner.Reset();
             placementDrag.Reset();
@@ -3498,7 +3405,6 @@ namespace FantasyShapez.Buildings
                     out BuildingPlacement neighbor)) return null;
             if (neighbor.DefinitionId == nameof(Belt))
                 return neighbor.Rotation.ToGridDirection().ToOffset() != -forward;
-            if (neighbor.DefinitionId == nameof(Hub)) return true;
             if (!buildingInstances.TryGetValue(neighbor, out PlacedBuilding instance))
                 return false;
             BuildingPlacementOption target = buildingOptions.FirstOrDefault(candidate =>
@@ -3534,59 +3440,6 @@ namespace FantasyShapez.Buildings
                         unlock.Category == UnlockKey.MachineCategory && unlock.Id == id))
                     return order.DisplayName;
             return "Market progression";
-        }
-
-        private void TryCopyHoveredMachine()
-        {
-            if (!occupancy.TryGetBuilding(hoverHighlight.HoveredCell, out BuildingPlacement placement) ||
-                !buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
-            {
-                return;
-            }
-
-            Engraver engraver = instance.GetComponent<Engraver>();
-            ElementInfuser infuser = instance.GetComponent<ElementInfuser>();
-            if (engraver == null && infuser == null)
-            {
-                return;
-            }
-
-            for (int index = 0; index < buildingOptions.Length; index++)
-            {
-                BuildingPlacementOption option = buildingOptions[index];
-                if (option?.Definition?.Id != placement.DefinitionId ||
-                    option.Definition.InstancePrefab == null)
-                {
-                    continue;
-                }
-
-                if (engraver != null &&
-                    option.Definition.InstancePrefab.GetComponent<Engraver>() != null)
-                {
-                    SelectBuilding(index);
-                    copiedEngraverRecipe = engraver.CaptureRecipeConfiguration();
-                }
-                else if (infuser != null &&
-                    option.Definition.InstancePrefab.GetComponent<ElementInfuser>() != null)
-                {
-                    SelectBuilding(index);
-                    copiedInfuserRecipe = infuser.CaptureRecipeConfiguration();
-                }
-                else
-                {
-                    continue;
-                }
-
-                selectedRotation = placement.Rotation;
-                RememberRotation(option, selectedRotation);
-                return;
-            }
-        }
-
-        private void ClearCopiedRecipe()
-        {
-            copiedEngraverRecipe = null;
-            copiedInfuserRecipe = null;
         }
 
         private BuildingPlacementOption GetSelectedOption()
@@ -3719,23 +3572,17 @@ namespace FantasyShapez.Buildings
             BuildingPlacementOption option,
             Vector2Int cell,
             BuildingRotation rotation,
-            Engraver.RecipeConfiguration? engraverRecipe = null,
-            ElementInfuser.RecipeConfiguration? infuserRecipe = null,
             string cropId = null)
         {
             Option = option ?? throw new ArgumentNullException(nameof(option));
             Offset = cell;
             Rotation = rotation;
-            EngraverRecipe = engraverRecipe;
-            InfuserRecipe = infuserRecipe;
             CropId = cropId;
         }
 
         public BuildingPlacementOption Option { get; }
         public Vector2Int Offset { get; }
         public BuildingRotation Rotation { get; }
-        public Engraver.RecipeConfiguration? EngraverRecipe { get; }
-        public ElementInfuser.RecipeConfiguration? InfuserRecipe { get; }
         public string CropId { get; }
     }
 
@@ -3789,8 +3636,6 @@ namespace FantasyShapez.Buildings
                     source.Option,
                     source.Offset - origin,
                     source.Rotation,
-                    source.EngraverRecipe,
-                    source.InfuserRecipe,
                     source.CropId);
             }
             propertyItems = sourceConnections == null
@@ -3833,8 +3678,6 @@ namespace FantasyShapez.Buildings
                     item.Option,
                     rotatedOffset,
                     item.Rotation.RotateClockwise(),
-                    item.EngraverRecipe,
-                    item.InfuserRecipe,
                     item.CropId);
             }
             var rotatedProperties = propertyItems.Select(item =>
@@ -3895,8 +3738,6 @@ namespace FantasyShapez.Buildings
                     item.Option,
                     mirroredOffset,
                     MirrorDirection(item.Rotation, horizontal),
-                    item.EngraverRecipe,
-                    item.InfuserRecipe,
                     item.CropId);
             }
             var mirroredProperties = propertyItems.Select(item =>

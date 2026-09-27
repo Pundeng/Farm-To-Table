@@ -1,5 +1,4 @@
 using System;
-using FantasyShapez.Runes;
 using UnityEngine;
 
 namespace FantasyShapez.Logistics
@@ -13,8 +12,6 @@ namespace FantasyShapez.Logistics
         }
 
         public ITransportItem Item { get; }
-
-        public RuneData Rune => Item as RuneData;
 
         public GridDirection EntryDirection { get; private set; }
 

@@ -107,9 +107,6 @@ namespace FantasyShapez.Food
                 FactoryWorldSnapshotValidator.Validate(world));
         }
 
-        public static string DefaultPath =>
-            Path.Combine(Application.persistentDataPath, "cozy-food-factory-progress.json");
-
         public static string DemoPath =>
             Path.Combine(Application.persistentDataPath, "cozy-food-factory-demo.json");
 

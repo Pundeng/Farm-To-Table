@@ -53,11 +53,6 @@ namespace FantasyShapez.Logistics
             }
         }
 
-        public void RegisterOutputSource(IRuneOutputSource source)
-        {
-            GetSystem().RegisterOutputSource(source);
-        }
-
         public void RegisterOutputSource(IItemOutputSource source)
         {
             GetSystem().RegisterOutputSource(source);
@@ -75,29 +70,14 @@ namespace FantasyShapez.Logistics
         public bool CanAcceptOutput(Vector2Int cell) =>
             GetSystem().CanAcceptOutput(cell);
 
-        public void RegisterInputReceiver(IRuneInputReceiver receiver)
-        {
-            GetSystem().RegisterInputReceiver(receiver);
-        }
-
         public void RegisterInputReceiver(IItemInputReceiver receiver)
         {
             GetSystem().RegisterInputReceiver(receiver);
         }
 
-        public void UnregisterInputReceiver(IRuneInputReceiver receiver)
-        {
-            GetSystem().UnregisterInputReceiver(receiver);
-        }
-
         public void UnregisterInputReceiver(IItemInputReceiver receiver)
         {
             GetSystem().UnregisterInputReceiver(receiver);
-        }
-
-        public void UnregisterOutputSource(IRuneOutputSource source)
-        {
-            GetSystem().UnregisterOutputSource(source);
         }
 
         public void UnregisterOutputSource(IItemOutputSource source)
@@ -107,7 +87,7 @@ namespace FantasyShapez.Logistics
 
         private void LateUpdate()
         {
-            // Extractors produce in Update; one coordinated LateUpdate owns every belt move.
+            // One coordinated LateUpdate owns every belt move.
             if (!FactoryWorldLoadSession.IsReconstructing)
             {
                 GetSystem().Advance(Time.deltaTime);

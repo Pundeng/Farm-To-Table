@@ -2,7 +2,6 @@ using System;
 using System.Reflection;
 using FantasyShapez.Food;
 using FantasyShapez.Logistics;
-using FantasyShapez.Runes;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -72,13 +71,13 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void Receiver_RejectsRunesAndInvalidDirectionsWithoutCounting()
+        public void Receiver_RejectsNonFoodAndInvalidDirectionsWithoutCounting()
         {
             var inventory = new MarketInventory();
             var receiver = new MarketReceiver(Vector2Int.zero, inventory);
             var apple = new FoodItemData("apple", FoodItemKind.RawIngredient);
 
-            Assert.That(receiver.TryAcceptItem(new RuneData(RuneBaseShape.Circle),
+            Assert.That(receiver.TryAcceptItem(new NonFoodItem(),
                 GridDirection.East), Is.False);
             Assert.That(receiver.TryAcceptItem(apple, (GridDirection)99), Is.False);
             Assert.That(inventory.TotalDelivered, Is.Zero);
@@ -86,13 +85,15 @@ namespace FantasyShapez.Tests.EditMode
 
             var transport = new BeltTransportSystem(1f);
             BeltCell belt = transport.AddBelt(Vector2Int.left, GridDirection.East);
-            belt.TryAccept(new RuneData(RuneBaseShape.Circle), GridDirection.East);
+            belt.TryAccept(new NonFoodItem(), GridDirection.East);
             transport.RegisterInputReceiver(receiver);
             transport.Advance(1f);
             Assert.That(belt.HasItem, Is.True);
             Assert.That(inventory.TotalDelivered, Is.Zero);
             Assert.That(inventory.Currency, Is.Zero);
         }
+
+        private sealed class NonFoodItem : ITransportItem { }
 
         [Test]
         public void TwoBelts_DeliverFoodToMarketInSameStep()

@@ -4,8 +4,6 @@ using System.Linq;
 using FantasyShapez.Buildings;
 using FantasyShapez.Logistics;
 using FantasyShapez.Food;
-using FantasyShapez.Production;
-using FantasyShapez.Runes;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -140,44 +138,32 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void GroupCopy_NormalizesPositionsAndKeepsOrientationAndRecipeSnapshot()
+        public void GroupCopy_NormalizesPositionsAndKeepsOrientationAndCrop()
         {
             var option = new BuildingPlacementOption();
-            var recipe = new Engraver.RecipeConfiguration(
-                RuneSigil.Spirit, GlyphType.Split, 2.5f);
-            var infuserRecipe = new ElementInfuser.RecipeConfiguration(
-                true, RuneElement.Water, ElementZone.Left, 3f);
             var group = new BuildingGroupCopy(new[]
             {
                 new BuildingGroupCopyItem(option, new Vector2Int(8, 4),
-                    BuildingRotation.Degrees90, recipe),
+                    BuildingRotation.Degrees90, "Apple"),
                 new BuildingGroupCopyItem(option, new Vector2Int(5, 3),
-                    BuildingRotation.Degrees180, infuserRecipe: infuserRecipe)
+                    BuildingRotation.Degrees180)
             });
 
             Assert.That(group.Items[0].Offset, Is.EqualTo(new Vector2Int(3, 1)));
             Assert.That(group.Items[1].Offset, Is.EqualTo(Vector2Int.zero));
             Assert.That(group.Items[0].Rotation, Is.EqualTo(BuildingRotation.Degrees90));
             Assert.That(group.Items[1].Rotation, Is.EqualTo(BuildingRotation.Degrees180));
-            Assert.That(group.Items[0].EngraverRecipe.Value.Sigil,
-                Is.EqualTo(RuneSigil.Spirit));
-            Assert.That(group.Items[0].EngraverRecipe.Value.Duration, Is.EqualTo(2.5f));
-            Assert.That(group.Items[1].InfuserRecipe.Value.Element,
-                Is.EqualTo(RuneElement.Water));
-            Assert.That(group.Items[1].InfuserRecipe.Value.UseWholeRuneElement,
-                Is.True);
+            Assert.That(group.Items[0].CropId, Is.EqualTo("Apple"));
         }
 
         [Test]
         public void GroupRotation_RotatesMultiCellAnchorsAndOrientationsThroughFourTurns()
         {
             var option = new BuildingPlacementOption();
-            var recipe = new Engraver.RecipeConfiguration(
-                RuneSigil.Spirit, GlyphType.Split, 2.5f);
             var group = new BuildingGroupCopy(new[]
             {
                 new BuildingGroupCopyItem(option, Vector2Int.zero,
-                    BuildingRotation.Degrees0, recipe),
+                    BuildingRotation.Degrees0, "Apple"),
                 new BuildingGroupCopyItem(option, new Vector2Int(3, 1),
                     BuildingRotation.Degrees90)
             });
@@ -188,8 +174,7 @@ namespace FantasyShapez.Tests.EditMode
             Assert.That(quarterTurn.Items[0].Rotation, Is.EqualTo(BuildingRotation.Degrees90));
             Assert.That(quarterTurn.Items[1].Offset, Is.EqualTo(new Vector2Int(1, 0)));
             Assert.That(quarterTurn.Items[1].Rotation, Is.EqualTo(BuildingRotation.Degrees180));
-            Assert.That(quarterTurn.Items[0].EngraverRecipe,
-                Is.EqualTo(group.Items[0].EngraverRecipe));
+            Assert.That(quarterTurn.Items[0].CropId, Is.EqualTo("Apple"));
 
             BuildingGroupCopy halfTurn = quarterTurn.RotateClockwise();
             Assert.That(halfTurn.Items[0].Offset, Is.EqualTo(new Vector2Int(2, 2)));
@@ -292,51 +277,6 @@ namespace FantasyShapez.Tests.EditMode
             finally
             {
                 Object.DestroyImmediate(behaviorObject);
-            }
-        }
-
-        [Test]
-        public void GroupMirror_AsymmetricFootprintAndPortsValidateAtDestination()
-        {
-            var coordinatorObject = new GameObject("Transport");
-            var behaviorObject = new GameObject("Engraver placement");
-            try
-            {
-                BeltTransportCoordinator coordinator =
-                    coordinatorObject.AddComponent<BeltTransportCoordinator>();
-                EngraverPlacementBehavior behavior =
-                    behaviorObject.AddComponent<EngraverPlacementBehavior>();
-                SetPrivateField(behavior, "transportCoordinator", coordinator);
-                BuildingPlacementOption option = CreateMirrorOption(
-                    behavior, new Vector2Int(2, 1));
-                var recipe = new Engraver.RecipeConfiguration(
-                    RuneSigil.Spirit, GlyphType.Split, 2.5f);
-                var group = new BuildingGroupCopy(new[]
-                {
-                    new BuildingGroupCopyItem(option, Vector2Int.zero,
-                        BuildingRotation.Degrees0, recipe),
-                    new BuildingGroupCopyItem(option, new Vector2Int(3, 1),
-                        BuildingRotation.Degrees90)
-                });
-
-                Assert.That(group.TryMirrorHorizontal(out BuildingGroupCopy mirrored), Is.True);
-                Assert.That(mirrored.Items[0].Offset, Is.EqualTo(new Vector2Int(2, 0)));
-                Assert.That(mirrored.Items[0].Rotation, Is.EqualTo(BuildingRotation.Degrees0));
-                Assert.That(mirrored.Items[1].Offset, Is.EqualTo(new Vector2Int(0, 1)));
-                Assert.That(mirrored.Items[1].Rotation, Is.EqualTo(BuildingRotation.Degrees270));
-                Assert.That(mirrored.Items[0].EngraverRecipe,
-                    Is.EqualTo(group.Items[0].EngraverRecipe));
-
-                var occupancy = new GridOccupancy();
-                Assert.That(mirrored.CanPlace(Vector2Int.zero, occupancy), Is.True);
-                occupancy.TryRegister("Blocker", new Vector2Int(0, 2),
-                    Vector2Int.one, BuildingRotation.Degrees0, out _);
-                Assert.That(mirrored.CanPlace(Vector2Int.zero, occupancy), Is.False);
-            }
-            finally
-            {
-                Object.DestroyImmediate(behaviorObject);
-                Object.DestroyImmediate(coordinatorObject);
             }
         }
 
@@ -483,8 +423,8 @@ namespace FantasyShapez.Tests.EditMode
         public void RectangleSelection_DeduplicatesFootprintsAndExcludesReservedCells()
         {
             var occupancy = new GridOccupancy();
-            occupancy.TryRegister("Hub", new Vector2Int(0, 0), Vector2Int.one,
-                BuildingRotation.Degrees0, out BuildingPlacement hub);
+            occupancy.TryRegister("Market", new Vector2Int(0, 0), Vector2Int.one,
+                BuildingRotation.Degrees0, out BuildingPlacement market);
             occupancy.TryRegister("Machine", new Vector2Int(1, 0),
                 new Vector2Int(2, 1), BuildingRotation.Degrees0,
                 out BuildingPlacement machine);
@@ -493,7 +433,7 @@ namespace FantasyShapez.Tests.EditMode
             var selection = new BuildingSelection();
 
             selection.SelectRectangle(occupancy, new Vector2Int(2, 1),
-                Vector2Int.zero, placement => placement != hub);
+                Vector2Int.zero, placement => placement != market);
 
             CollectionAssert.AreEquivalent(new[] { machine, belt },
                 selection.SelectedPlacements);
@@ -528,7 +468,7 @@ namespace FantasyShapez.Tests.EditMode
             var occupancy = new GridOccupancy();
 
             bool registered = occupancy.TryRegister(
-                "PrototypeMachine",
+                "Machine",
                 new Vector2Int(3, 4),
                 new Vector2Int(2, 2),
                 BuildingRotation.Degrees0,
@@ -575,7 +515,7 @@ namespace FantasyShapez.Tests.EditMode
         {
             var occupancy = new GridOccupancy();
             occupancy.TryRegister(
-                "PrototypeMachine",
+                "Machine",
                 Vector2Int.zero,
                 new Vector2Int(2, 1),
                 BuildingRotation.Degrees0,
@@ -825,12 +765,12 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void ContinuousBeltDrag_RejectsHubCellButKeepsAdjacentCellsAvailable()
+        public void ContinuousBeltDrag_RejectsMarketCellButKeepsAdjacentCellsAvailable()
         {
             var occupancy = new GridOccupancy();
             var tracker = new GridDragTracker();
             occupancy.TryRegister(
-                "Hub",
+                "Market",
                 new Vector2Int(1, 0),
                 Vector2Int.one,
                 BuildingRotation.Degrees0,
@@ -858,9 +798,9 @@ namespace FantasyShapez.Tests.EditMode
 
             Assert.That(occupancy.OccupiedCellCount, Is.EqualTo(3));
             Assert.That(
-                occupancy.TryGetBuilding(new Vector2Int(1, 0), out BuildingPlacement hub),
+                occupancy.TryGetBuilding(new Vector2Int(1, 0), out BuildingPlacement market),
                 Is.True);
-            Assert.That(hub.DefinitionId, Is.EqualTo("Hub"));
+            Assert.That(market.DefinitionId, Is.EqualTo("Market"));
             Assert.That(
                 occupancy.TryGetBuilding(Vector2Int.zero, out BuildingPlacement firstBelt),
                 Is.True);
@@ -873,26 +813,26 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
-        public void HubFootprint_RejectsOverlappingBuildingWithoutBlockingAdjacentInputBelt()
+        public void MarketFootprint_RejectsOverlappingBuildingWithoutBlockingAdjacentInputBelt()
         {
             var occupancy = new GridOccupancy();
-            var hubCell = new Vector2Int(10, 1);
+            var marketCell = new Vector2Int(10, 1);
             occupancy.TryRegister(
-                "Hub",
-                hubCell,
+                "Market",
+                marketCell,
                 Vector2Int.one,
                 BuildingRotation.Degrees0,
                 out _);
 
             bool overlappingBuildingRegistered = occupancy.TryRegister(
                 "Machine",
-                hubCell + Vector2Int.left,
+                marketCell + Vector2Int.left,
                 new Vector2Int(2, 1),
                 BuildingRotation.Degrees0,
                 out _);
             bool adjacentInputBeltRegistered = occupancy.TryRegister(
                 "Belt",
-                hubCell + Vector2Int.left,
+                marketCell + Vector2Int.left,
                 Vector2Int.one,
                 BuildingRotation.Degrees90,
                 out _);
@@ -908,7 +848,7 @@ namespace FantasyShapez.Tests.EditMode
             var occupancy = new GridOccupancy();
 
             bool registered = occupancy.TryRegister(
-                "PrototypeMachine",
+                "Machine",
                 new Vector2Int(-2, -3),
                 new Vector2Int(2, 1),
                 BuildingRotation.Degrees0,

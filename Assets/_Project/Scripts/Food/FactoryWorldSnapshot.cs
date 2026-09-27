@@ -301,7 +301,7 @@ namespace FantasyShapez.Food
             IReadOnlyList<SavedUnlock> savedUnlocks,
             IReadOnlyList<ProcessingRecipe> processingRecipes,
             IReadOnlyList<MixingRecipe> mixingRecipes,
-            Vector2Int marketCell, Vector2Int? hubCell,
+            Vector2Int marketCell,
             IReadOnlyList<CuttingRecipe> cuttingRecipes = null)
         {
             cuttingRecipes ??= Array.Empty<CuttingRecipe>();
@@ -332,9 +332,7 @@ namespace FantasyShapez.Food
 
             var occupancy = new GridOccupancy();
             if (!occupancy.TryRegister("Market", marketCell, Vector2Int.one,
-                    BuildingRotation.Degrees0, out _) ||
-                hubCell.HasValue && !occupancy.TryRegister("Hub", hubCell.Value,
-                    Vector2Int.one, BuildingRotation.Degrees0, out _))
+                    BuildingRotation.Degrees0, out _))
             {
                 throw new ArgumentException("Scene fixtures overlap.");
             }

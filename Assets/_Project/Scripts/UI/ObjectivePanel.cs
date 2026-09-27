@@ -1,8 +1,5 @@
 using FantasyShapez.Buildings;
 using FantasyShapez.Food;
-using FantasyShapez.Objectives;
-using FantasyShapez.Production;
-using FantasyShapez.Runes;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -10,22 +7,6 @@ namespace FantasyShapez.UI
 {
     public sealed class ObjectivePanel : MonoBehaviour
     {
-        [SerializeField] private Hub hub = null;
-        private static readonly RuneSigil[] EngraverSigilOptions =
-        {
-            RuneSigil.Spirit,
-            RuneSigil.Acceleration
-        };
-        private static readonly RuneElement[] InfuserElementOptions =
-        {
-            RuneElement.Fire,
-            RuneElement.Water,
-            RuneElement.Earth,
-            RuneElement.Wind
-        };
-
-        private Engraver selectedEngraver;
-        private ElementInfuser selectedInfuser;
         private FarmPlot selectedFarmPlot;
         private Harvester selectedHarvester;
         private Processor selectedProcessor;
@@ -37,8 +18,6 @@ namespace FantasyShapez.UI
         public bool HasConfiguration => GetConfigurationPanelHeight() > 0f;
         public void CloseConfiguration()
         {
-            selectedEngraver = null;
-            selectedInfuser = null;
             selectedFarmPlot = null;
             selectedHarvester = null;
             selectedProcessor = null;
@@ -60,47 +39,16 @@ namespace FantasyShapez.UI
                 Vector2 pointer = Mouse.current.position.ReadValue();
                 pointer.y = Screen.height - pointer.y;
                 float configurationHeight = GetConfigurationPanelHeight();
-                return (hub != null && hub.Progress != null &&
-                        new Rect(16f, 16f, 320f, GetObjectivePanelHeight()).Contains(pointer)) ||
-                    (configurationHeight > 0f &&
-                     new Rect(ConfigurationX, ConfigurationY, 300f,
-                         VisibleConfigurationHeight(configurationHeight))
-                         .Contains(pointer));
+                return configurationHeight > 0f &&
+                      new Rect(ConfigurationX, ConfigurationY, 300f,
+                          VisibleConfigurationHeight(configurationHeight))
+                          .Contains(pointer);
             }
-        }
-
-        public void Configure(Hub objectiveHub)
-        {
-            hub = objectiveHub;
-        }
-
-        public void ShowEngraver(Engraver engraver)
-        {
-            selectedCutter = null;
-            selectedEngraver = engraver;
-            selectedInfuser = null;
-            selectedFarmPlot = null;
-            selectedHarvester = null;
-            selectedProcessor = null;
-            selectedMixer = null;
-        }
-
-        public void ShowElementInfuser(ElementInfuser infuser)
-        {
-            selectedCutter = null;
-            selectedEngraver = null;
-            selectedInfuser = infuser;
-            selectedFarmPlot = null;
-            selectedHarvester = null;
-            selectedProcessor = null;
-            selectedMixer = null;
         }
 
         public void ShowFarmPlot(FarmPlot farmPlot)
         {
             selectedCutter = null;
-            selectedEngraver = null;
-            selectedInfuser = null;
             selectedFarmPlot = farmPlot;
             selectedHarvester = null;
             selectedProcessor = null;
@@ -110,8 +58,6 @@ namespace FantasyShapez.UI
         public void ShowHarvester(Harvester harvester)
         {
             selectedCutter = null;
-            selectedEngraver = null;
-            selectedInfuser = null;
             selectedFarmPlot = null;
             selectedHarvester = harvester;
             selectedProcessor = null;
@@ -121,8 +67,6 @@ namespace FantasyShapez.UI
         public void ShowProcessor(Processor processor)
         {
             selectedCutter = null;
-            selectedEngraver = null;
-            selectedInfuser = null;
             selectedFarmPlot = null;
             selectedHarvester = null;
             selectedProcessor = processor;
@@ -132,8 +76,6 @@ namespace FantasyShapez.UI
         public void ShowMixer(BasicMixer mixer)
         {
             selectedCutter = null;
-            selectedEngraver = null;
-            selectedInfuser = null;
             selectedFarmPlot = null;
             selectedHarvester = null;
             selectedProcessor = null;
@@ -148,11 +90,6 @@ namespace FantasyShapez.UI
 
         private void OnGUI()
         {
-            if (hub != null && hub.Progress != null)
-            {
-                DrawObjectivePanel();
-            }
-
             if (demoController == null || !demoController.IsFoodDemo ||
                 demoController.OpenDemoPanel == BuildingPlacementController.DemoPanel.Machine)
             {
@@ -198,70 +135,8 @@ namespace FantasyShapez.UI
             GUILayout.EndArea();
         }
 
-        private void DrawObjectivePanel()
-        {
-            float panelHeight = GetObjectivePanelHeight();
-            var panelRect = new Rect(16f, 16f, 320f, panelHeight);
-            GUI.Box(panelRect, GUIContent.none);
-            GUILayout.BeginArea(new Rect(28f, 24f, 296f, panelHeight - 16f));
-
-            if (hub.Progress.AreAllObjectivesComplete)
-            {
-                GUILayout.Label("MVP Objectives Complete");
-            }
-            else
-            {
-                ObjectiveDefinition current = hub.Progress.CurrentObjective;
-                GUILayout.Label(current.DisplayName);
-                for (int index = 0; index < current.Requirements.Count; index++)
-                {
-                    ObjectiveRequirement requirement = current.Requirements[index];
-                    if (requirement.RequirementType == ObjectiveRequirementType.SustainedRate)
-                    {
-                        GUILayout.Label($"{requirement.TargetRune}: " +
-                            $"{hub.Progress.GetCurrentRate(index):0.##} / " +
-                            $"{requirement.TargetRatePerSecond:0.##} per sec");
-                        GUILayout.Label($"Sustain: " +
-                            $"{hub.Progress.GetSustainProgress(index):0.#} / " +
-                            $"{requirement.SustainDurationSeconds:0.#} sec");
-                    }
-                    else
-                    {
-                        GUILayout.Label(
-                            $"{requirement.TargetRune}: " +
-                            $"{hub.Progress.GetCurrentCount(index)} / {requirement.RequiredCount}");
-                    }
-                }
-            }
-
-            if (!string.IsNullOrEmpty(hub.LastDeliveryMessage))
-            {
-                GUILayout.Label(hub.LastDeliveryMessage);
-            }
-
-            GUILayout.EndArea();
-        }
-
-        private float GetObjectivePanelHeight()
-        {
-            int requirementLineCount = 0;
-            if (!hub.Progress.AreAllObjectivesComplete)
-            {
-                foreach (ObjectiveRequirement requirement in
-                    hub.Progress.CurrentObjective.Requirements)
-                {
-                    requirementLineCount += requirement.RequirementType ==
-                        ObjectiveRequirementType.SustainedRate ? 2 : 1;
-                }
-            }
-
-            return 72f + requirementLineCount * 22f;
-        }
-
         private float GetConfigurationPanelHeight()
         {
-            if (selectedEngraver != null) return 214f;
-            if (selectedInfuser != null) return 128f;
             if (selectedFarmPlot != null)
                 return 132f + selectedFarmPlot.AvailableCrops.Count * 28f;
             if (selectedHarvester != null)
@@ -274,15 +149,7 @@ namespace FantasyShapez.UI
 
         private void DrawMachineConfigurationPanel()
         {
-            if (selectedEngraver != null)
-            {
-                DrawEngraverPanel();
-            }
-            else if (selectedInfuser != null)
-            {
-                DrawInfuserPanel();
-            }
-            else if (selectedFarmPlot != null)
+            if (selectedFarmPlot != null)
             {
                 DrawFarmPlotPanel();
             }
@@ -440,85 +307,5 @@ namespace FantasyShapez.UI
             }
         }
 
-        private void DrawEngraverPanel()
-        {
-            BeginConfiguration(214f);
-            GUILayout.Label("Engraver Configuration");
-            GUILayout.Label("Sigil (next rune)");
-            DrawSigilButtons();
-            GUILayout.Space(6f);
-            GUILayout.Label(selectedEngraver.IsAccelerationSocketOccupied
-                ? "Socket: Acceleration Rune installed"
-                : "Socket: Empty");
-            GUILayout.Label($"Hub Acceleration Runes: {hub.AccelerationRuneCount}");
-            float durationPercent = 100f / selectedEngraver.UpgradedSpeedMultiplier;
-            GUILayout.Label($"Installed effect: {durationPercent:0}% processing duration");
-
-            bool previousEnabled = GUI.enabled;
-            GUI.enabled = previousEnabled && !selectedEngraver.IsAccelerationSocketOccupied &&
-                hub.AccelerationRuneCount >= 1;
-            if (GUILayout.Button("Install Acceleration Rune"))
-            {
-                selectedEngraver.TryInstallAccelerationRune(hub.TryConsumeAccelerationRune);
-            }
-
-            GUI.enabled = previousEnabled;
-            if (GUILayout.Button("Close"))
-            {
-                selectedEngraver = null;
-            }
-
-            EndConfiguration();
-        }
-
-        private void DrawSigilButtons()
-        {
-            GUILayout.BeginHorizontal();
-            foreach (RuneSigil sigil in EngraverSigilOptions)
-            {
-                bool previousEnabled = GUI.enabled;
-                GUI.enabled = previousEnabled && selectedEngraver.SelectedSigil != sigil;
-                if (GUILayout.Button(sigil.ToString()))
-                {
-                    selectedEngraver.SetSelectedSigil(sigil);
-                }
-
-                GUI.enabled = previousEnabled;
-            }
-
-            GUILayout.EndHorizontal();
-        }
-
-        private void DrawInfuserPanel()
-        {
-            if (selectedInfuser == null)
-            {
-                return;
-            }
-
-            BeginConfiguration(128f);
-            GUILayout.Label("Element Infuser Configuration");
-            GUILayout.Label("Primary element (next rune)");
-            GUILayout.BeginHorizontal();
-            foreach (RuneElement element in InfuserElementOptions)
-            {
-                bool previousEnabled = GUI.enabled;
-                GUI.enabled = previousEnabled && selectedInfuser.PrimaryElement != element;
-                if (GUILayout.Button(element.ToString()))
-                {
-                    selectedInfuser.SetPrimaryElement(element);
-                }
-
-                GUI.enabled = previousEnabled;
-            }
-
-            GUILayout.EndHorizontal();
-            if (GUILayout.Button("Close"))
-            {
-                selectedInfuser = null;
-            }
-
-            EndConfiguration();
-        }
     }
 }
