@@ -40,6 +40,9 @@ namespace FantasyShapez.Food
         private bool isVisible;
         private int selectedSourceIndex;
         private string message = "Choose a tool, then click a grid cell.";
+        private bool constructionBatch;
+        public event Action ConstructionStarting;
+        public event Action ConstructionFinished;
 
         public PropertySupplyPlayMode(GridSystem grid, GridHoverHighlight hover,
             GridOccupancy occupancy, Transform parent,
@@ -170,6 +173,18 @@ namespace FantasyShapez.Food
             network.TryGetConnection(cell, out PropertyConnection connection) &&
             connection.Kind is PropertyConnectionKind.Pipe or PropertyConnectionKind.Collector;
 
+        public bool CanRemoveWithoutBreakingDependents(
+            IReadOnlyCollection<Vector2Int> removedCells)
+        {
+            var removed = new HashSet<Vector2Int>(removedCells);
+            PropertyConnection[] connected = network.Connections.Where(item =>
+                !removed.Contains(item.Cell) && item.Kind != PropertyConnectionKind.Source &&
+                network.IsConnectedToSource(item.Cell)).ToArray();
+            CookingPropertyNetwork preview = network.CopyForPreview();
+            foreach (Vector2Int cell in removed) preview.Remove(cell);
+            return connected.All(item => preview.IsConnectedToSource(item.Cell));
+        }
+
         public bool ContainsPlacement(BuildingPlacement placement) =>
             placement != null &&
             reservations.TryGetValue(placement.AnchorCell, out BuildingPlacement stored) &&
@@ -233,21 +248,29 @@ namespace FantasyShapez.Food
                 {
                     PropertyGroupCopyItem item = remaining[index];
                     Vector2Int cell = anchor + item.Offset;
-                    bool added = item.Connection.Kind switch
+                    bool added = false;
+                    if (item.Connection.Kind == PropertyConnectionKind.Collector)
                     {
-                        PropertyConnectionKind.Collector =>
-                            preview.TryAddCollector(cell, item.Connection.SourceCell),
-                        PropertyConnectionKind.Pipe => preview.TryAddPipe(cell),
-                        _ => false
-                    };
+                        foreach (PropertyConnection source in preview.Connections)
+                        {
+                            if (source.Kind != PropertyConnectionKind.Source ||
+                                source.Property != item.Connection.Property ||
+                                Mathf.Abs(source.Cell.x - cell.x) +
+                                Mathf.Abs(source.Cell.y - cell.y) != 1) continue;
+                            if (preview.TryAddCollector(cell, source.Cell))
+                            { added = true; break; }
+                        }
+                    }
+                    else if (item.Connection.Kind == PropertyConnectionKind.Pipe)
+                        added = preview.TryAddPipe(cell);
                     if (!added || !preview.TryGetConnection(cell,
                             out PropertyConnection placed) ||
-                        placed.SourceCell != item.Connection.SourceCell)
+                        placed.Property != item.Connection.Property)
                     {
                         if (added) preview.Remove(cell);
                         continue;
                     }
-                    plan.Add(item);
+                    plan.Add(new PropertyGroupCopyItem(placed, item.Offset));
                     remaining.RemoveAt(index--);
                     progressed = true;
                 }
@@ -352,6 +375,13 @@ namespace FantasyShapez.Food
 
         public bool TryRemoveConnection(Vector2Int cell)
         {
+            if (!constructionBatch) ConstructionStarting?.Invoke();
+            try { return RemoveConnectionCore(cell); }
+            finally { if (!constructionBatch) ConstructionFinished?.Invoke(); }
+        }
+
+        private bool RemoveConnectionCore(Vector2Int cell)
+        {
             if (processorPorts.ContainsKey(cell))
             {
                 message = "Processor demand is automatic. Remove its pipe or Processor.";
@@ -425,8 +455,18 @@ namespace FantasyShapez.Food
                 if (pipeDrag.IsActive && !IsPointerOverPanel())
                 {
                     IReadOnlyList<bool> valid = PreviewPipePath(pipePath);
-                    for (int index = 0; index < pipePath.Count; index++)
-                        if (valid[index]) TryPlacePipe(pipePath[index]);
+                    ConstructionStarting?.Invoke();
+                    constructionBatch = true;
+                    try
+                    {
+                        for (int index = 0; index < pipePath.Count; index++)
+                            if (valid[index]) TryPlacePipe(pipePath[index]);
+                    }
+                    finally
+                    {
+                        constructionBatch = false;
+                        ConstructionFinished?.Invoke();
+                    }
                 }
                 CancelPipeDrag();
                 return;
@@ -469,6 +509,13 @@ namespace FantasyShapez.Food
         }
 
         private bool TryPlaceConnection(Vector2Int cell, string kind, Func<bool> add)
+        {
+            if (!constructionBatch) ConstructionStarting?.Invoke();
+            try { return PlaceConnectionCore(cell, kind, add); }
+            finally { if (!constructionBatch) ConstructionFinished?.Invoke(); }
+        }
+
+        private bool PlaceConnectionCore(Vector2Int cell, string kind, Func<bool> add)
         {
             if (!Reserve(cell, kind, out BuildingPlacement reservation))
             {

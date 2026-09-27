@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using FantasyShapez.Food;
+using FantasyShapez.CameraControl;
 using FantasyShapez.Grid;
 using FantasyShapez.Logistics;
 using FantasyShapez.Objectives;
@@ -51,7 +52,7 @@ namespace FantasyShapez.Buildings
 
     public sealed class BuildingPlacementController : MonoBehaviour
     {
-        public enum DemoPanel { None, Build, Recipe, Help, Market, Region, Machine, Property }
+        public enum DemoPanel { None, Build, Recipe, Help, Market, Region, Machine, Property, Issues }
         [SerializeField] private GridSystem gridSystem = null;
         [SerializeField] private GridHoverHighlight hoverHighlight = null;
         [SerializeField] private BuildingPreview placementPreview = null;
@@ -74,11 +75,15 @@ namespace FantasyShapez.Buildings
         [SerializeField] private CuttingRecipe[] cutterRecipes =
             Array.Empty<CuttingRecipe>();
         [SerializeField, Min(0.01f)] private float cutterDuration = 1f;
+        [SerializeField, Min(0f)] private float propertyIssueDelay = 1.5f;
+        [SerializeField, Min(0f)] private float invalidIssueDelay = 0.75f;
+        [SerializeField, Min(0f)] private float blockedIssueDelay = 0.75f;
 
         private readonly GridOccupancy occupancy = new();
         private readonly RecipeDiscoveryRegistry recipeDiscoveries = new();
         private readonly Dictionary<BuildingPlacement, PlacedBuilding> buildingInstances = new();
         private readonly Dictionary<BuildingPlacement, MachineFeedbackView> feedbackViews = new();
+        private readonly FactoryIssueTracker<BuildingPlacement> issueTracker = new();
         private readonly EventToastQueue toasts = new();
         private readonly Queue<OrderCompletionPresentation> completionCards = new();
         private OrderCompletionPresentation activeCompletionCard;
@@ -95,6 +100,7 @@ namespace FantasyShapez.Buildings
         private readonly BuildingSelection selection = new();
         private readonly Dictionary<BuildingPlacement, GameObject> selectionHighlights = new();
         private Vector2Int? selectionStartCell;
+        private readonly List<BuildingPlacement> selectionBeforeDrag = new();
         private GameObject selectionArea;
         private BuildingRotation selectedRotation;
         private readonly BuildingToolRotationMemory rememberedRotations = new();
@@ -106,6 +112,21 @@ namespace FantasyShapez.Buildings
         private FarmPlot cropPickerPlot;
         private string rememberedFarmCropId;
         private Vector2 buildMenuScroll;
+        private BlueprintLibrary blueprintLibrary;
+        private readonly ConstructionHistory constructionHistory = new();
+        private ConstructionLayout placementHistoryStart;
+        private ConstructionLayout removalHistoryStart;
+        private ConstructionLayout cropHistoryStart;
+        private ConstructionLayout propertyHistoryStart;
+        private bool suppressConstructionHistory;
+        private bool blueprintLibraryOpen;
+        private bool blueprintSaveFormOpen;
+        private bool blueprintNameFocused;
+        private BuildingGroupCopy pendingBlueprintGroup;
+        private const string BlueprintNameControl = "BlueprintName";
+        private string blueprintName = "Production Line";
+        private string selectedBlueprintId;
+        private string activeBlueprintName;
         private Vector2 helpScroll;
         private static readonly string[] HotbarBuildingIds =
         {
@@ -133,6 +154,7 @@ namespace FantasyShapez.Buildings
         private BuildingPlacement recipeShortcutPlacement;
         private float recipeShortcutKeepUntil;
         private MarketPanel marketPanel;
+        private FactoryCameraController factoryCamera;
 
         public PropertySupplyPlayMode PropertySupply => propertySupply;
         public Market Market => market;
@@ -157,6 +179,11 @@ namespace FantasyShapez.Buildings
         public bool BlocksAllWorldInput => foodDemoControls &&
             (systemMenuOpen || activeCompletionCard != null ||
              recipeDiscoveryPanel?.HasModal == true);
+        public bool BlocksGameplayKeyboardInput => ShouldBlockGameplayKeyboardInput(
+            foodDemoControls, blueprintLibraryOpen, demoPanel, blueprintNameFocused);
+        public static bool ShouldBlockGameplayKeyboardInput(bool foodDemo,
+            bool libraryOpen, DemoPanel panel, bool textFocused) =>
+            foodDemo && libraryOpen && panel == DemoPanel.Build && textFocused;
         public void OpenPanel(DemoPanel panel)
         {
             if (!foodDemoControls) return;
@@ -178,6 +205,7 @@ namespace FantasyShapez.Buildings
             if (demoPanel == DemoPanel.Machine) engraverUpgradePanel?.CloseConfiguration();
             if (demoPanel == DemoPanel.Region) marketPanel?.CloseRegion();
             demoPanel = DemoPanel.None;
+            blueprintNameFocused = false;
         }
         public bool IsPointerOverInterface => Mouse.current != null &&
             (BlocksAllWorldInput ||
@@ -327,6 +355,9 @@ namespace FantasyShapez.Buildings
         {
             recipeDiscoveryPanel = GetComponent<RecipeDiscoveryPanel>();
             marketPanel = market?.GetComponent<MarketPanel>();
+            if (foodDemoControls)
+                blueprintLibrary = new BlueprintLibrary(System.IO.Path.Combine(
+                    Application.persistentDataPath, "cozy-food-factory-blueprints.json"));
             if (hub != null && !occupancy.TryRegister(
                     nameof(Hub), hub.InputCell, hub.Footprint,
                     BuildingRotation.Degrees0, out _))
@@ -348,6 +379,11 @@ namespace FantasyShapez.Buildings
 
             propertySupply = new PropertySupplyPlayMode(gridSystem, hoverHighlight,
                 occupancy, transform, propertySources, !foodDemoControls);
+            if (foodDemoControls)
+            {
+                propertySupply.ConstructionStarting += OnPropertyConstructionStarting;
+                propertySupply.ConstructionFinished += OnPropertyConstructionFinished;
+            }
             foreach (BuildingPlacementOption option in buildingOptions)
             {
                 if (option?.Definition?.Id == nameof(Processor))
@@ -457,6 +493,14 @@ namespace FantasyShapez.Buildings
                 return;
             }
 
+            // IMGUI text fields receive the key event later in the frame. Keep
+            // world shortcuts from acting on it first, including Enter and Esc.
+            if (BlocksGameplayKeyboardInput)
+            {
+                ClearRightClickRemoval();
+                return;
+            }
+
 
             if (!foodDemoControls && Keyboard.current.f8Key.wasPressedThisFrame)
             {
@@ -487,6 +531,7 @@ namespace FantasyShapez.Buildings
                     ClearRightClickRemoval();
                     return;
                 }
+                if (HandleConstructionHistoryShortcut()) return;
                 if (recipeShortcutKind.HasValue &&
                     Mouse.current.leftButton.wasPressedThisFrame &&
                     recipeShortcutRect.Contains(GetGuiPointer()))
@@ -536,6 +581,10 @@ namespace FantasyShapez.Buildings
 
             if (IsPointerOverInterface)
             {
+                RecordConstruction(placementHistoryStart);
+                placementHistoryStart = null;
+                RecordConstruction(removalHistoryStart);
+                removalHistoryStart = null;
                 if (Mouse.current.rightButton.wasPressedThisFrame)
                     suppressRightRemovalUntilRelease = true;
                 ClearRightClickRemoval();
@@ -646,6 +695,9 @@ namespace FantasyShapez.Buildings
 
         private void LateUpdate()
         {
+            issueTracker.NeedsPropertyDelay = propertyIssueDelay;
+            issueTracker.InvalidRecipeDelay = invalidIssueDelay;
+            issueTracker.OutputBlockedDelay = blockedIssueDelay;
             foreach (KeyValuePair<BuildingPlacement, MachineFeedbackView> entry in feedbackViews)
             {
                 if (!buildingInstances.TryGetValue(entry.Key, out PlacedBuilding building))
@@ -692,11 +744,88 @@ namespace FantasyShapez.Buildings
                     out BuildingPlacement over) && over == entry.Key &&
                     !IsPointerOverInterface;
                 entry.Value.SetFeedback(feedback, hovered, BlocksAllWorldInput);
+                if (foodDemoControls)
+                    issueTracker.Observe(entry.Key, feedback, Time.time);
             }
+
+            if (foodDemoControls)
+            {
+                issueTracker.EndFrame(Time.time);
+                UpdateWorldInformationLod();
+            }
+        }
+
+        private void UpdateWorldInformationLod()
+        {
+            if (factoryCamera == null && Camera.main != null)
+                factoryCamera = Camera.main.GetComponent<FactoryCameraController>();
+            WorldInformationLevel level = factoryCamera?.InformationLevel ??
+                WorldInformationLevel.Close;
+            occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
+                out BuildingPlacement hoveredPlacement);
+            foreach (KeyValuePair<BuildingPlacement, PlacedBuilding> entry in buildingInstances)
+            {
+                bool detail = entry.Key == hoveredPlacement && !IsPointerOverInterface ||
+                    selection.Contains(entry.Key) ||
+                    feedbackViews.TryGetValue(entry.Key, out MachineFeedbackView view) &&
+                    view.IsEmphasized;
+                if (entry.Value.TryGetComponent(out Belt belt))
+                    belt.SetInformationLevel(level, detail);
+                foreach (TextMesh label in entry.Value.GetComponentsInChildren<TextMesh>(true))
+                {
+                    if (!label.gameObject.name.EndsWith(" label", StringComparison.Ordinal))
+                        continue;
+                    string original = label.gameObject.name[..^6];
+                    label.text = level == WorldInformationLevel.Medium && !detail
+                        ? original switch
+                        {
+                            "IN" => "I", "OUT" => "O", "PROP" => "P",
+                            "IN A" or "OUT A" => "A",
+                            "IN B" or "OUT B" => "B", _ => original
+                        } : original;
+                    label.gameObject.SetActive(level != WorldInformationLevel.Far || detail);
+                }
+            }
+        }
+
+        private bool HandleConstructionHistoryShortcut()
+        {
+            if (demoPanel != DemoPanel.None || cropPickerPlot != null ||
+                isGroupPasteModeActive || placementDrag.IsActive ||
+                removalDrag.IsActive || propertySupply?.IsPipeDragging == true ||
+                !Keyboard.current.ctrlKey.isPressed) return false;
+            if (Keyboard.current.zKey.wasPressedThisFrame)
+            {
+                if (constructionHistory.UndoCount == 0)
+                    constructionMessage = "Nothing to undo.";
+                else constructionHistory.TryUndo(ApplyConstructionHistory);
+                return true;
+            }
+            if (Keyboard.current.yKey.wasPressedThisFrame)
+            {
+                if (constructionHistory.RedoCount == 0)
+                    constructionMessage = "Nothing to redo.";
+                else constructionHistory.TryRedo(ApplyConstructionHistory);
+                return true;
+            }
+            return false;
         }
 
         private void HandleModeInput()
         {
+            if (foodDemoControls && !Keyboard.current.ctrlKey.isPressed &&
+                Keyboard.current.mKey.wasPressedThisFrame && !isPlacementModeActive &&
+                !isGroupPasteModeActive && selection.SelectedPlacements.Count > 0)
+            {
+                var sources = new List<BuildingPlacement>(selection.SelectedPlacements);
+                if (CanCutDemoSources(sources) &&
+                    TryCaptureSelection(out BuildingGroupCopy moving))
+                {
+                    EnterGroupPasteMode(moving, sources);
+                    constructionMessage = "Move selection: R rotates, Click places, Esc cancels.";
+                }
+                return;
+            }
             if (Keyboard.current.ctrlKey.isPressed &&
                 Keyboard.current.cKey.wasPressedThisFrame)
             {
@@ -875,10 +1004,13 @@ namespace FantasyShapez.Buildings
 
         private bool CanCutDemoSources(IReadOnlyList<BuildingPlacement> sources)
         {
+            var removedPropertyCells = new List<Vector2Int>();
             foreach (BuildingPlacement source in sources)
             {
                 if (buildingInstances.TryGetValue(source, out PlacedBuilding building))
                 {
+                    if (building.TryGetComponent(out Processor processor))
+                        removedPropertyCells.Add(processor.PropertyCell);
                     if (source.DefinitionId == nameof(FarmPlot) &&
                         occupancy.TryGetBuilding(source.AnchorCell,
                             out BuildingPlacement covering) && covering != source &&
@@ -899,8 +1031,19 @@ namespace FantasyShapez.Buildings
                 if (propertySupply?.TryGetClipboardConnection(source,
                         out PropertyConnection connection) == true &&
                     connection.Kind is PropertyConnectionKind.Collector or
-                        PropertyConnectionKind.Pipe) continue;
+                        PropertyConnectionKind.Pipe)
+                {
+                    removedPropertyCells.Add(connection.Cell);
+                    continue;
+                }
                 constructionMessage = "This Property connection cannot be cut.";
+                return false;
+            }
+            if (removedPropertyCells.Count > 0 &&
+                propertySupply?.CanRemoveWithoutBreakingDependents(
+                    removedPropertyCells) != true)
+            {
+                constructionMessage = "Other Property connections depend on this selection.";
                 return false;
             }
             return true;
@@ -908,9 +1051,12 @@ namespace FantasyShapez.Buildings
 
         private static bool HasActiveDemoItems(GameObject building)
         {
-            return building.TryGetComponent(out FarmPlot plot) && plot.MatureCount > 0 ||
+            return building.TryGetComponent(out FarmPlot plot) &&
+                    (plot.MatureCount > 0 ||
+                     plot.CaptureWorldState().elapsedSeconds > 0f) ||
                 building.TryGetComponent(out Harvester harvester) &&
-                    harvester.OutputCount > 0 ||
+                    (harvester.OutputCount > 0 ||
+                     harvester.CaptureWorldState().elapsedSeconds > 0f) ||
                 building.TryGetComponent(out Belt belt) && !belt.CanMove ||
                 building.TryGetComponent(out Processor processor) &&
                     processor.State != ProcessorState.Idle ||
@@ -1076,6 +1222,7 @@ namespace FantasyShapez.Buildings
             isGroupPasteModeActive = false;
             pasteAwaitingMouseRelease = false;
             activeGroup = null;
+            activeBlueprintName = null;
             moveSources.Clear();
             moveSourceSet.Clear();
             movePropertySources.Clear();
@@ -1132,6 +1279,8 @@ namespace FantasyShapez.Buildings
 
             if (!canPlaceGroup || !Mouse.current.leftButton.wasPressedThisFrame)
             {
+                if (!canPlaceGroup && Mouse.current.leftButton.wasPressedThisFrame)
+                    constructionMessage = GetGroupFailureReason(anchorCell);
                 return;
             }
 
@@ -1218,7 +1367,7 @@ namespace FantasyShapez.Buildings
         {
             propertyPlan = null;
             if ((moveSources.Count > 0 || movePropertySources.Count > 0) &&
-                !CanCutDemoSources(selection.SelectedPlacements))
+                !CanCutDemoSources(GetCurrentMovePlacements()))
                 return false;
             var occupied = new HashSet<Vector2Int>();
             var overlay = new HashSet<Vector2Int>();
@@ -1231,6 +1380,15 @@ namespace FantasyShapez.Buildings
                     !occupancy.CanPlace(definition, cell, item.Rotation) ||
                     !CanSatisfyPlacementBehavior(item.Option, cell, item.Rotation))
                     return false;
+                if (item.CropId != null)
+                {
+                    FarmPlot prefab = definition.InstancePrefab?.GetComponent<FarmPlot>();
+                    CropDefinition crop = prefab?.AvailableCrops.FirstOrDefault(candidate =>
+                        candidate.Id == item.CropId);
+                    if (crop == null || !string.IsNullOrEmpty(crop.RequiredUnlockId) &&
+                        market?.Unlocks.IsUnlocked(UnlockKey.CropCategory,
+                            crop.RequiredUnlockId) != true) return false;
+                }
                 var candidate = new BuildingPlacement(definition.Id, cell,
                     definition.Footprint, item.Rotation, definition.OccupiedCells);
                 foreach (Vector2Int occupiedCell in candidate.OccupiedCells)
@@ -1270,10 +1428,23 @@ namespace FantasyShapez.Buildings
                     anchor, occupied, movePropertySources, out propertyPlan);
         }
 
-        private void PlaceDemoGroup(Vector2Int anchor)
+        private IReadOnlyList<BuildingPlacement> GetCurrentMovePlacements()
+        {
+            var placements = new List<BuildingPlacement>(moveSources);
+            foreach (Vector2Int cell in movePropertySources)
+                if (occupancy.TryGetBuilding(cell, out BuildingPlacement placement))
+                    placements.Add(placement);
+            return placements;
+        }
+
+        private bool PlaceDemoGroup(Vector2Int anchor)
         {
             if (!CanPlaceDemoGroup(anchor,
-                    out IReadOnlyList<PropertyGroupCopyItem> propertyPlan)) return;
+                    out IReadOnlyList<PropertyGroupCopyItem> propertyPlan)) return false;
+            ConstructionLayout historyBefore = !suppressConstructionHistory
+                ? CaptureConstructionLayout() : null;
+            bool priorSuppression = suppressConstructionHistory;
+            suppressConstructionHistory = true;
             var placedBuildings = new List<BuildingPlacement>();
             var placedProperties = new List<Vector2Int>();
             bool failed = false;
@@ -1323,7 +1494,8 @@ namespace FantasyShapez.Buildings
                              .OrderByDescending(item => item.DefinitionId == nameof(Harvester)))
                     TryRemovePlacement(placement);
                 constructionMessage = "Paste failed; the original selection was kept.";
-                return;
+                suppressConstructionHistory = priorSuppression;
+                return false;
             }
             foreach (BuildingPlacement source in moveSources
                          .OrderByDescending(item => item.DefinitionId == nameof(Harvester)))
@@ -1331,7 +1503,235 @@ namespace FantasyShapez.Buildings
             foreach (Vector2Int cell in movePropertySources)
                 propertySupply.TryRemoveConnection(cell);
             constructionMessage = $"Placed {placedBuildings.Count + placedProperties.Count} parts.";
+            if (activeBlueprintName != null)
+                toasts.Enqueue($"Placed {activeBlueprintName}", Time.time);
             ExitGroupPasteMode();
+            suppressConstructionHistory = priorSuppression;
+            RecordConstruction(historyBefore);
+            return true;
+        }
+
+        private string GetGroupFailureReason(Vector2Int anchor)
+        {
+            foreach (BuildingGroupCopyItem item in activeGroup.Items)
+            {
+                string id = item.Option.Definition.Id;
+                if (IsMachineLocked(item.Option))
+                    return $"{id} requires {GetMachineUnlockRequirement(item.Option)}.";
+                if (id == nameof(FarmPlot) &&
+                    !CanSatisfyPlacementBehavior(item.Option,
+                        anchor + item.Offset, item.Rotation))
+                    return "Farm Plot requires unlocked farmable land.";
+            }
+            return activeGroup.PropertyItems.Count > 0
+                ? "Clear occupied cells and check Property source connections."
+                : "Clear occupied cells and check building dependencies.";
+        }
+
+        private ConstructionLayout CaptureConstructionLayout() =>
+            ConstructionLayout.FromWorld(CaptureWorldSnapshot());
+
+        private void OnPropertyConstructionStarting()
+        {
+            if (!suppressConstructionHistory)
+                propertyHistoryStart = CaptureConstructionLayout();
+        }
+
+        private void OnPropertyConstructionFinished()
+        {
+            RecordConstruction(propertyHistoryStart);
+            propertyHistoryStart = null;
+        }
+
+        private void OnCropChanging(FarmPlot plot)
+        {
+            if (!suppressConstructionHistory)
+                cropHistoryStart = CaptureConstructionLayout();
+        }
+
+        private void OnCropChanged(FarmPlot plot)
+        {
+            RecordConstruction(cropHistoryStart);
+            cropHistoryStart = null;
+        }
+
+        private void RecordConstruction(ConstructionLayout before)
+        {
+            if (before == null || suppressConstructionHistory || !foodDemoControls) return;
+            constructionHistory.Record(before.Difference(CaptureConstructionLayout()));
+        }
+
+        private bool ApplyConstructionHistory(ConstructionLayout expected,
+            ConstructionLayout desired)
+        {
+            constructionMessage = null;
+            if (!foodDemoControls || activeGroup != null ||
+                placementDrag.IsActive || removalDrag.IsActive ||
+                propertySupply?.IsPipeDragging == true)
+                return HistoryRejected("Finish the current construction tool first.");
+            FactoryWorldData live = CaptureWorldSnapshot();
+            foreach (SavedBuilding old in expected.Buildings)
+                if (!live.buildings.Any(item => ConstructionLayout.Same(old, item)))
+                    return HistoryRejected("A building changed since this action.");
+            foreach (SavedPropertyConnection old in expected.Connections)
+                if (!live.connections.Any(item => ConstructionLayout.Same(old, item)))
+                    return HistoryRejected("A Property connection changed since this action.");
+
+            // Crop configuration changes keep their existing Farm Plot and do not touch time.
+            if (expected.Buildings.Length == 1 && desired.Buildings.Length == 1 &&
+                expected.Connections.Length == 0 && desired.Connections.Length == 0 &&
+                ConstructionLayout.BuildingKey(expected.Buildings[0]) ==
+                    ConstructionLayout.BuildingKey(desired.Buildings[0]) &&
+                expected.Buildings[0].rotation == desired.Buildings[0].rotation &&
+                expected.Buildings[0].definitionId == nameof(FarmPlot))
+            {
+                SavedBuilding old = expected.Buildings[0];
+                FarmPlot plot = buildingInstances.FirstOrDefault(entry =>
+                    entry.Key.DefinitionId == nameof(FarmPlot) &&
+                    entry.Key.AnchorCell == new Vector2Int(old.x, old.y))
+                    .Value?.GetComponent<FarmPlot>();
+                SavedFarmPlot state = plot?.CaptureWorldState();
+                if (state == null || state.matureCount > 0 || state.elapsedSeconds > 0f)
+                    return HistoryRejected("Wait until the Farm Plot is empty and idle.");
+                CropDefinition crop = desired.Buildings[0].farmPlot?.cropId == null
+                    ? null : plot.AvailableCrops.FirstOrDefault(item =>
+                        item.Id == desired.Buildings[0].farmPlot.cropId &&
+                        plot.IsCropUnlocked(item));
+                if (desired.Buildings[0].farmPlot?.cropId != null && crop == null)
+                    return HistoryRejected("The crop is no longer unlocked.");
+                suppressConstructionHistory = true;
+                try { plot.SelectCrop(crop); }
+                finally { suppressConstructionHistory = false; }
+                return true;
+            }
+
+            var sourceBuildings = new List<BuildingPlacement>();
+            foreach (SavedBuilding old in expected.Buildings)
+            {
+                KeyValuePair<BuildingPlacement, PlacedBuilding> entry =
+                    buildingInstances.FirstOrDefault(candidate =>
+                        candidate.Key.DefinitionId == old.definitionId &&
+                        candidate.Key.AnchorCell == new Vector2Int(old.x, old.y));
+                if (entry.Key == null || !CanRemove(entry.Value.gameObject) ||
+                    HasActiveDemoItems(entry.Value.gameObject))
+                    return HistoryRejected($"Empty {old.definitionId} before changing it.");
+                SavedBuilding current = live.buildings.First(item =>
+                    ConstructionLayout.BuildingKey(item) ==
+                    ConstructionLayout.BuildingKey(old));
+                if (current.farmPlot?.elapsedSeconds > 0f ||
+                    current.harvester?.elapsedSeconds > 0f)
+                    return HistoryRejected("Wait for active crop work to finish.");
+                sourceBuildings.Add(entry.Key);
+            }
+            var sourceProperties = new List<Vector2Int>();
+            foreach (SavedPropertyConnection old in expected.Connections)
+                sourceProperties.Add(new Vector2Int(old.x, old.y));
+            var removedNetworkCells = new List<Vector2Int>(sourceProperties);
+            foreach (BuildingPlacement source in sourceBuildings)
+                if (buildingInstances[source].TryGetComponent(out Processor processor))
+                    removedNetworkCells.Add(processor.PropertyCell);
+            if (removedNetworkCells.Count > 0 &&
+                !propertySupply.CanRemoveWithoutBreakingDependents(removedNetworkCells))
+                return HistoryRejected("Other Property connections still depend on this layout.");
+            if (sourceProperties.Count > 0 && buildingInstances.Values.Any(item =>
+                    item.TryGetComponent(out Processor processor) &&
+                    processor.State != ProcessorState.Idle))
+                return HistoryRejected("Stop active Processors before changing Property pipes.");
+
+            var expectedBuildingKeys = new HashSet<(string, int, int)>(
+                expected.Buildings.Select(ConstructionLayout.BuildingKey));
+            var expectedConnectionKeys = new HashSet<(int, int)>(
+                expected.Connections.Select(ConstructionLayout.ConnectionKey));
+            var candidate = new FactoryWorldData
+            {
+                buildings = live.buildings.Where(item =>
+                    !expectedBuildingKeys.Contains(ConstructionLayout.BuildingKey(item)))
+                    .Concat(desired.Buildings).ToArray(),
+                connections = live.connections.Where(item =>
+                    !expectedConnectionKeys.Contains(ConstructionLayout.ConnectionKey(item)))
+                    .Concat(desired.Connections).ToArray()
+            };
+            try
+            {
+                ValidateWorldSnapshot(candidate, market.Unlocks.Unlocked.Select(key =>
+                    new SavedUnlock { category = key.Category, id = key.Id }).ToArray());
+            }
+            catch (ArgumentException exception)
+            {
+                return HistoryRejected(exception.Message);
+            }
+
+            if (desired.Buildings.Length == 0 && desired.Connections.Length == 0)
+            {
+                suppressConstructionHistory = true;
+                try
+                {
+                    foreach (BuildingPlacement placement in sourceBuildings.OrderByDescending(
+                        item => item.DefinitionId == nameof(Harvester)))
+                        TryRemovePlacement(placement);
+                    foreach (Vector2Int cell in sourceProperties)
+                        propertySupply.TryRemoveConnection(cell);
+                }
+                finally { suppressConstructionHistory = false; }
+                return true;
+            }
+
+            var items = new List<BuildingGroupCopyItem>();
+            foreach (SavedBuilding target in desired.Buildings)
+            {
+                BuildingPlacementOption option = buildingOptions.FirstOrDefault(item =>
+                    item?.Definition?.Id == target.definitionId);
+                if (option == null || IsMachineLocked(option))
+                    return HistoryRejected($"{target.definitionId} is locked or unavailable.");
+                items.Add(new BuildingGroupCopyItem(option,
+                    new Vector2Int(target.x, target.y), target.rotation,
+                    cropId: target.farmPlot?.cropId));
+            }
+            var properties = desired.Connections.Select(item => new PropertyConnection(
+                new Vector2Int(item.x, item.y),
+                new Vector2Int(item.sourceX, item.sourceY), item.property,
+                item.kind)).ToArray();
+            var group = new BuildingGroupCopy(items, properties);
+            int anchorX = items.Count > 0 ? items.Min(item => item.Offset.x) : int.MaxValue;
+            int anchorY = items.Count > 0 ? items.Min(item => item.Offset.y) : int.MaxValue;
+            foreach (PropertyConnection connection in properties)
+            {
+                anchorX = Math.Min(anchorX, connection.Cell.x);
+                anchorY = Math.Min(anchorY, connection.Cell.y);
+            }
+            activeGroup = group;
+            moveSources.AddRange(sourceBuildings);
+            movePropertySources.AddRange(sourceProperties);
+            Vector2Int destinationAnchor = new(anchorX, anchorY);
+            if (!CanPlaceDemoGroup(destinationAnchor,
+                    out IReadOnlyList<PropertyGroupCopyItem> planned) ||
+                desired.Connections.Any(saved => planned == null ||
+                    !planned.Any(item => destinationAnchor + item.Offset ==
+                            new Vector2Int(saved.x, saved.y) &&
+                        item.Connection.SourceCell ==
+                            new Vector2Int(saved.sourceX, saved.sourceY))))
+            {
+                ExitGroupPasteMode();
+                return HistoryRejected("The original Property ownership or placement is unavailable.");
+            }
+            suppressConstructionHistory = true;
+            try
+            {
+                bool placed = PlaceDemoGroup(destinationAnchor);
+                if (!placed)
+                {
+                    ExitGroupPasteMode();
+                    return HistoryRejected("The construction area or connection changed.");
+                }
+                return true;
+            }
+            finally { suppressConstructionHistory = false; }
+        }
+
+        private bool HistoryRejected(string reason)
+        {
+            constructionMessage = reason;
+            return false;
         }
 
         private void RestoreFailedGroupPlacement(IReadOnlyList<BuildingPlacement> placedItems)
@@ -1365,8 +1765,15 @@ namespace FantasyShapez.Buildings
             if (!foodDemoControls || isPlacementModeActive || isGroupPasteModeActive ||
                 propertySupply?.IsActive == true)
             {
+                RecordConstruction(removalHistoryStart);
+                removalHistoryStart = null;
                 ClearRightClickRemoval();
                 return;
+            }
+            if (!Mouse.current.rightButton.isPressed && removalHistoryStart != null)
+            {
+                RecordConstruction(removalHistoryStart);
+                removalHistoryStart = null;
             }
             if (!Mouse.current.rightButton.isPressed)
                 suppressRightRemovalUntilRelease = false;
@@ -1380,8 +1787,17 @@ namespace FantasyShapez.Buildings
             if (!Mouse.current.rightButton.isPressed || suppressRightRemovalUntilRelease)
                 removalDrag.Reset();
             else if (Mouse.current.rightButton.wasPressedThisFrame || removalDrag.IsActive)
-                foreach (Vector2Int cell in removalDrag.Continue(hoverHighlight.HoveredCell))
-                    TryRemoveBuilding(cell);
+            {
+                removalHistoryStart ??= CaptureConstructionLayout();
+                bool previous = suppressConstructionHistory;
+                suppressConstructionHistory = true;
+                try
+                {
+                    foreach (Vector2Int cell in removalDrag.Continue(hoverHighlight.HoveredCell))
+                        TryRemoveBuilding(cell);
+                }
+                finally { suppressConstructionHistory = previous; }
+            }
         }
 
         private void ClearRightClickRemoval()
@@ -1402,6 +1818,11 @@ namespace FantasyShapez.Buildings
 
         private void OnDestroy()
         {
+            if (propertySupply != null)
+            {
+                propertySupply.ConstructionStarting -= OnPropertyConstructionStarting;
+                propertySupply.ConstructionFinished -= OnPropertyConstructionFinished;
+            }
             if (foodDemoControls && market != null)
             {
                 if (market.OrderSequence != null)
@@ -1474,11 +1895,14 @@ namespace FantasyShapez.Buildings
 
         private bool HandleSelectionInput()
         {
+            if (isPlacementModeActive || isGroupPasteModeActive) return false;
             if (!selectionStartCell.HasValue &&
                 Keyboard.current.shiftKey.isPressed &&
                 Mouse.current.leftButton.wasPressedThisFrame)
             {
                 selectionStartCell = hoverHighlight.HoveredCell;
+                selectionBeforeDrag.Clear();
+                selectionBeforeDrag.AddRange(selection.SelectedPlacements);
                 beltDragPlanner.Reset();
                 placementDrag.Reset();
                 placementPreview.Hide();
@@ -1487,18 +1911,32 @@ namespace FantasyShapez.Buildings
             if (selectionStartCell.HasValue)
             {
                 Vector2Int endCell = hoverHighlight.HoveredCell;
-                selection.SelectRectangle(
-                    occupancy,
-                    selectionStartCell.Value,
-                    endCell,
-                    placement => buildingInstances.ContainsKey(placement) ||
-                        foodDemoControls &&
-                        propertySupply?.ContainsPlacement(placement) == true,
-                    foodDemoControls);
-                RefreshSelectionHighlights();
                 ShowSelectionArea(selectionStartCell.Value, endCell);
                 if (!Mouse.current.leftButton.isPressed)
                 {
+                    if (endCell == selectionStartCell.Value)
+                    {
+                        selection.Clear();
+                        foreach (BuildingPlacement previous in selectionBeforeDrag)
+                            selection.Add(previous);
+                        if (occupancy.TryGetBuilding(endCell,
+                                out BuildingPlacement clicked) &&
+                            (buildingInstances.ContainsKey(clicked) ||
+                             propertySupply?.ContainsPlacement(clicked) == true))
+                            selection.Toggle(clicked);
+                    }
+                    else
+                    {
+                        selection.SelectRectangle(occupancy, selectionStartCell.Value,
+                            endCell, placement => buildingInstances.ContainsKey(placement) ||
+                                foodDemoControls &&
+                                propertySupply?.ContainsPlacement(placement) == true,
+                            foodDemoControls);
+                        foreach (BuildingPlacement previous in selectionBeforeDrag)
+                            selection.Add(previous);
+                    }
+                    selectionBeforeDrag.Clear();
+                    RefreshSelectionHighlights();
                     selectionStartCell = null;
                     HideSelectionArea();
                 }
@@ -1508,11 +1946,32 @@ namespace FantasyShapez.Buildings
 
             if (Keyboard.current.deleteKey.wasPressedThisFrame)
             {
-                foreach (BuildingPlacement placement in
-                    new List<BuildingPlacement>(selection.SelectedPlacements))
+                var selected = new List<BuildingPlacement>(selection.SelectedPlacements);
+                if (foodDemoControls && !CanCutDemoSources(selected)) return true;
+                ConstructionLayout before = foodDemoControls
+                    ? CaptureConstructionLayout() : null;
+                bool previous = suppressConstructionHistory;
+                suppressConstructionHistory = true;
+                try
                 {
-                    TryRemovePlacement(placement);
+                    foreach (BuildingPlacement placement in selected.OrderByDescending(
+                        item => item.DefinitionId == nameof(Harvester)))
+                        TryRemovePlacement(placement);
                 }
+                finally { suppressConstructionHistory = previous; }
+                RecordConstruction(before);
+            }
+
+            if (Mouse.current.leftButton.wasPressedThisFrame)
+            {
+                selection.Clear();
+                if (occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
+                        out BuildingPlacement clicked) &&
+                    (buildingInstances.ContainsKey(clicked) ||
+                     foodDemoControls &&
+                     propertySupply?.ContainsPlacement(clicked) == true))
+                    selection.Add(clicked);
+                RefreshSelectionHighlights();
             }
 
             return false;
@@ -1610,6 +2069,9 @@ namespace FantasyShapez.Buildings
                     TryPlaceBuilding(option, finalStep.Cell, finalStep.Rotation);
                 }
 
+                RecordConstruction(placementHistoryStart);
+                placementHistoryStart = null;
+
                 placementDrag.Reset();
                 return;
             }
@@ -1620,12 +2082,15 @@ namespace FantasyShapez.Buildings
                 placementDrag.Reset();
                 if (Mouse.current.leftButton.wasPressedThisFrame && canPlace)
                 {
+                    ConstructionLayout before = foodDemoControls
+                        ? CaptureConstructionLayout() : null;
                     if (PlaceBuilding(option, anchorCell, selectedRotation,
                             copiedEngraverRecipe, copiedInfuserRecipe,
                             out BuildingPlacement placed) && foodDemoControls &&
                         option.Definition.Id == nameof(FarmPlot) &&
                         buildingInstances[placed].TryGetComponent(out FarmPlot plot))
                         OpenCropPicker(plot);
+                    RecordConstruction(before);
                 }
 
                 return;
@@ -1635,6 +2100,9 @@ namespace FantasyShapez.Buildings
             {
                 return;
             }
+
+            if (foodDemoControls && placementHistoryStart == null)
+                placementHistoryStart = CaptureConstructionLayout();
 
             IReadOnlyList<Vector2Int> newCells = placementDrag.Continue(anchorCell);
             foreach (BeltPlacementStep step in beltDragPlanner.Continue(newCells))
@@ -1669,6 +2137,11 @@ namespace FantasyShapez.Buildings
             }
             if (!CanRemove(instance.gameObject))
             {
+                return;
+            }
+            if (foodDemoControls && HasActiveDemoItems(instance.gameObject))
+            {
+                constructionMessage = $"Empty and stop {placement.DefinitionId} before removing it.";
                 return;
             }
 
@@ -1882,6 +2355,11 @@ namespace FantasyShapez.Buildings
                 }
 
                 option.PlacementBehavior?.InitializePlacedBuilding(buildingObject, placement);
+                if (foodDemoControls && buildingObject.TryGetComponent(out FarmPlot farmPlot))
+                {
+                    farmPlot.CropChanging += OnCropChanging;
+                    farmPlot.CropChanged += OnCropChanged;
+                }
                 if (buildingObject.GetComponent<Processor>() != null ||
                     buildingObject.GetComponent<BasicMixer>() != null ||
                     buildingObject.GetComponent<Cutter>() != null ||
@@ -2056,6 +2534,10 @@ namespace FantasyShapez.Buildings
 
         private void CancelDemoTool()
         {
+            RecordConstruction(placementHistoryStart);
+            placementHistoryStart = null;
+            RecordConstruction(removalHistoryStart);
+            removalHistoryStart = null;
             cropPickerPlot = null;
             isPlacementModeActive = false;
             propertySupply?.ExitTool();
@@ -2260,6 +2742,9 @@ namespace FantasyShapez.Buildings
         {
             if (!foodDemoControls || Mouse.current == null) return false;
             return systemMenuOpen ||
+                issueTracker.Issues.Count > 0 && IssuesButtonRect.Contains(GetGuiPointer()) ||
+                selection.SelectedPlacements.Count > 0 &&
+                    SaveBlueprintButtonRect.Contains(GetGuiPointer()) ||
                 recipeShortcutKind.HasValue &&
                     recipeShortcutRect.Contains(GetGuiPointer()) ||
                 IsPointerOverForegroundPanel() ||
@@ -2272,7 +2757,7 @@ namespace FantasyShapez.Buildings
             if (!foodDemoControls || Mouse.current == null) return false;
             Vector2 pointer = GetGuiPointer();
             return cropPickerPlot != null && CropPickerRect.Contains(pointer) ||
-                (demoPanel is DemoPanel.Build or DemoPanel.Help) &&
+                (demoPanel is DemoPanel.Build or DemoPanel.Help or DemoPanel.Issues) &&
                     DemoPanelRect.Contains(pointer) ||
                 demoPanel == DemoPanel.Recipe &&
                     recipeDiscoveryPanel?.BlocksWorldInput == true ||
@@ -2300,6 +2785,17 @@ namespace FantasyShapez.Buildings
             FarmableRegion region = market.Regions?.GetRegionAt(regionCell);
             GUI.Label(new Rect(12f, 48f, 180f, 22f),
                 region?.DisplayName ?? market.Regions?.Regions.FirstOrDefault()?.DisplayName ?? "");
+            if (selection.SelectedPlacements.Count > 0)
+            {
+                GUI.Box(new Rect(12f, 72f, 144f, 25f),
+                    $"{selection.SelectedPlacements.Count} selected  |  M Move");
+                if (GUI.Button(SaveBlueprintButtonRect, "Save Blueprint"))
+                    OpenBlueprintLibraryForSave();
+            }
+            if (issueTracker.Issues.Count > 0 &&
+                GUI.Button(IssuesButtonRect,
+                    $"Factory Issues: {issueTracker.Issues.Count}"))
+                OpenPanel(DemoPanel.Issues);
 
             Rect hotbar = HotbarRect;
             float slotWidth = (hotbar.width - 48f) / HotbarBuildingIds.Length;
@@ -2334,7 +2830,7 @@ namespace FantasyShapez.Buildings
                 if (isPlacementModeActive && selectedBuildingIndex == optionIndex)
                     GUI.Box(new Rect(cell.x, cell.y, cell.width, 3f), GUIContent.none);
             }
-            if (GUI.Button(new Rect(hotbar.xMax - 46f, hotbar.y, 44f, hotbar.height), "+"))
+            if (GUI.Button(new Rect(hotbar.xMax - 46f, hotbar.y, 44f, hotbar.height), "Build"))
                 OpenPanel(DemoPanel.Build);
             if (!string.IsNullOrEmpty(hoveredName))
                 GUI.Label(new Rect(hotbar.x, hotbar.y - 62f, hotbar.width, 20f),
@@ -2372,6 +2868,7 @@ namespace FantasyShapez.Buildings
             GUI.enabled = previousEnabled && !BlocksAllWorldInput;
             if (demoPanel == DemoPanel.Build) DrawBuildMenu();
             if (demoPanel == DemoPanel.Help) DrawHelpPanel();
+            if (demoPanel == DemoPanel.Issues) DrawIssuesPanel();
             GUI.enabled = previousEnabled;
             if (systemMenuOpen)
             {
@@ -2422,6 +2919,18 @@ namespace FantasyShapez.Buildings
             GUILayout.BeginArea(new Rect(rect.x + 10f, rect.y + 8f,
                 rect.width - 20f, rect.height - 16f));
             GUILayout.Label("Build Menu");
+            if (blueprintLibrary != null && GUILayout.Button(
+                    blueprintLibraryOpen ? "Buildings" : "Blueprint Library"))
+            {
+                blueprintLibraryOpen = !blueprintLibraryOpen;
+                blueprintNameFocused = false;
+            }
+            if (blueprintLibraryOpen)
+            {
+                DrawBlueprintLibrary();
+                GUILayout.EndArea();
+                return;
+            }
             GUILayout.BeginHorizontal();
             string[] categories = { "Farming", "Logistics", "Production", "Utility" };
             for (int category = 0; category < categories.Length; category++)
@@ -2449,6 +2958,258 @@ namespace FantasyShapez.Buildings
             GUILayout.EndArea();
         }
 
+        private Rect IssuesButtonRect => new(12f,
+            selection.SelectedPlacements.Count > 0 ? 102f : 74f, 160f, 28f);
+
+        private Rect SaveBlueprintButtonRect => new(160f, 72f, 112f, 25f);
+
+        private void OpenBlueprintLibraryForSave()
+        {
+            if (blueprintLibrary == null) return;
+            blueprintLibraryOpen = true;
+            if (demoPanel != DemoPanel.Build) OpenPanel(DemoPanel.Build);
+            OpenBlueprintSaveForm();
+        }
+
+        private void OpenBlueprintSaveForm()
+        {
+            constructionMessage = null;
+            if (!TryCaptureSelection(out pendingBlueprintGroup))
+            {
+                if (string.IsNullOrEmpty(constructionMessage))
+                    constructionMessage = "Select buildings before saving a Blueprint.";
+                return;
+            }
+            blueprintSaveFormOpen = true;
+            constructionMessage = null;
+        }
+
+        private void SavePendingBlueprint()
+        {
+            if (pendingBlueprintGroup == null)
+            {
+                constructionMessage = "Select buildings before saving a Blueprint.";
+                return;
+            }
+            if (!blueprintLibrary.TryAdd(blueprintName, pendingBlueprintGroup,
+                    out string error))
+            {
+                constructionMessage = error;
+                return;
+            }
+            selectedBlueprintId = blueprintLibrary.Records.Last().id;
+            blueprintSaveFormOpen = false;
+            pendingBlueprintGroup = null;
+            blueprintNameFocused = false;
+            GUI.FocusControl(null);
+            constructionMessage = null;
+            toasts.Enqueue($"Blueprint saved: {blueprintName.Trim()}", Time.time);
+        }
+
+        private void DrawIssuesPanel()
+        {
+            Rect rect = DemoPanelRect;
+            GUI.Box(rect, GUIContent.none);
+            GUILayout.BeginArea(new Rect(rect.x + 10f, rect.y + 8f,
+                rect.width - 20f, rect.height - 16f));
+            GUILayout.Label($"Factory Issues ({issueTracker.Issues.Count})");
+            if (GUILayout.Button("Close")) ClosePanel();
+            buildMenuScroll = GUILayout.BeginScrollView(buildMenuScroll);
+            foreach (FactoryIssue<BuildingPlacement> issue in issueTracker.Issues)
+            {
+                if (!buildingInstances.ContainsKey(issue.Machine)) continue;
+                GUILayout.Label($"{issue.Machine.DefinitionId}  |  " +
+                    $"{issue.Feedback.Problem}");
+                GUILayout.Label($"Port: {IssuePortName(issue.Feedback.Ports)}");
+                GUILayout.Label(issue.Feedback.Action);
+                if (GUILayout.Button("Locate and diagnose"))
+                {
+                    FocusFactoryIssue(issue.Machine);
+                    break;
+                }
+            }
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
+        }
+
+        private static string IssuePortName(MachineFeedbackPort ports) =>
+            ports switch
+            {
+                MachineFeedbackPort.OutputA => "Output",
+                MachineFeedbackPort.OutputB => "Output B",
+                MachineFeedbackPort.OutputA | MachineFeedbackPort.OutputB =>
+                    "Both outputs",
+                MachineFeedbackPort.InputA => "Food input",
+                MachineFeedbackPort.InputB => "Food input B",
+                MachineFeedbackPort.Combination => "Ingredient combination",
+                MachineFeedbackPort.Property => "Property input",
+                MachineFeedbackPort.Crop => "Farm Plot crop",
+                _ => "Affected ports"
+            };
+
+        private void FocusFactoryIssue(BuildingPlacement placement)
+        {
+            if (!buildingInstances.TryGetValue(placement, out PlacedBuilding building) ||
+                !feedbackViews.TryGetValue(placement, out MachineFeedbackView view))
+                return;
+            ClosePanel();
+            if (factoryCamera == null && Camera.main != null)
+                factoryCamera = Camera.main.GetComponent<FactoryCameraController>();
+            Vector2Int? traceCell = GetFeedbackTraceCell(placement,
+                building, view.Feedback.Ports);
+            Vector3? tracePosition = traceCell.HasValue &&
+                occupancy.TryGetBuilding(traceCell.Value,
+                    out BuildingPlacement connected) && connected != placement
+                ? gridSystem.GridToWorld(traceCell.Value) : null;
+            view.Emphasize(tracePosition);
+            factoryCamera?.JumpTo(building.transform.position, () =>
+            {
+                if (view != null) view.Emphasize(tracePosition);
+            });
+        }
+
+        private void DrawBlueprintLibrary()
+        {
+            if (blueprintNameFocused && Event.current.type == EventType.MouseDown &&
+                !DemoPanelRect.Contains(Event.current.mousePosition))
+            {
+                GUI.FocusControl(null);
+                blueprintNameFocused = false;
+            }
+            if (blueprintLibrary.LoadError != null)
+                GUILayout.Label($"Library unavailable: {blueprintLibrary.LoadError}");
+            int selectedBuildings = selection.SelectedPlacements.Count(
+                buildingInstances.ContainsKey);
+            GUILayout.Label($"Selected buildings: {selectedBuildings}");
+            if (selectedBuildings == 0)
+                GUILayout.Label("Select one or more buildings in the world to save a layout.");
+            if (!blueprintSaveFormOpen && GUILayout.Button("Save Selection"))
+                OpenBlueprintSaveForm();
+            if (blueprintSaveFormOpen)
+            {
+                GUILayout.Label("Blueprint name");
+                GUI.SetNextControlName(BlueprintNameControl);
+                bool nameHasFocus = GUI.GetNameOfFocusedControl() ==
+                    BlueprintNameControl;
+                if (nameHasFocus && Event.current.type == EventType.KeyDown)
+                {
+                    if (Event.current.keyCode is KeyCode.Return or KeyCode.KeypadEnter)
+                    {
+                        SavePendingBlueprint();
+                        Event.current.Use();
+                    }
+                    else if (Event.current.keyCode == KeyCode.Escape)
+                    {
+                        blueprintSaveFormOpen = false;
+                        pendingBlueprintGroup = null;
+                        blueprintNameFocused = false;
+                        GUI.FocusControl(null);
+                        Event.current.Use();
+                    }
+                }
+                blueprintName = GUILayout.TextField(blueprintName, 64);
+                blueprintNameFocused = GUI.GetNameOfFocusedControl() ==
+                    BlueprintNameControl;
+                if (GUILayout.Button("Save Blueprint"))
+                    SavePendingBlueprint();
+                if (GUILayout.Button("Cancel Save"))
+                {
+                    blueprintSaveFormOpen = false;
+                    pendingBlueprintGroup = null;
+                    blueprintNameFocused = false;
+                    GUI.FocusControl(null);
+                }
+            }
+            if (!string.IsNullOrEmpty(constructionMessage))
+                GUILayout.Label(constructionMessage);
+            GUILayout.Label("Saved Blueprints");
+            if (blueprintLibrary.Records.Count == 0)
+                GUILayout.Label("No Blueprints yet. Select buildings, click Save Selection, name the layout, and save it here.");
+            buildMenuScroll = GUILayout.BeginScrollView(buildMenuScroll);
+            foreach (BlueprintRecord record in blueprintLibrary.Records)
+            {
+                if (GUILayout.Button($"{record.name}  ({record.PartCount} parts)"))
+                {
+                    selectedBlueprintId = record.id;
+                    blueprintName = record.name;
+                }
+            }
+            BlueprintRecord selected = blueprintLibrary.Records.FirstOrDefault(
+                item => item.id == selectedBlueprintId);
+            if (selected != null)
+            {
+                GUILayout.Label($"{selected.name}: {selected.PartCount} parts");
+                if (!blueprintSaveFormOpen)
+                {
+                    GUILayout.Label("Rename selected Blueprint");
+                    GUI.SetNextControlName(BlueprintNameControl);
+                    bool renameHasFocus = GUI.GetNameOfFocusedControl() ==
+                        BlueprintNameControl;
+                    if (renameHasFocus && Event.current.type == EventType.KeyDown)
+                    {
+                        if (Event.current.keyCode is KeyCode.Return or KeyCode.KeypadEnter)
+                        {
+                            if (blueprintLibrary.TryRename(selected.id, blueprintName,
+                                    out string renameError))
+                            {
+                                constructionMessage = null;
+                                toasts.Enqueue("Blueprint renamed", Time.time);
+                            }
+                            else constructionMessage = renameError;
+                            Event.current.Use();
+                        }
+                        else if (Event.current.keyCode == KeyCode.Escape)
+                        {
+                            blueprintNameFocused = false;
+                            GUI.FocusControl(null);
+                            Event.current.Use();
+                        }
+                    }
+                    blueprintName = GUILayout.TextField(blueprintName, 64);
+                    blueprintNameFocused = GUI.GetNameOfFocusedControl() ==
+                        BlueprintNameControl;
+                }
+                if (BlueprintLibrary.TryResolve(selected, buildingOptions,
+                        out BuildingGroupCopy group, out string reason))
+                {
+                    BuildingGroupCopyItem locked = group.Items.FirstOrDefault(item =>
+                        IsMachineLocked(item.Option));
+                    if (locked.Option != null)
+                        GUILayout.Label($"{locked.Option.Definition.Id} requires " +
+                            GetMachineUnlockRequirement(locked.Option));
+                    else if (GUILayout.Button("Place Blueprint"))
+                    {
+                        ClosePanel();
+                        EnterGroupPasteMode(group);
+                        activeBlueprintName = selected.name;
+                    }
+                }
+                else GUILayout.Label(reason);
+                if (GUILayout.Button("Rename"))
+                {
+                    if (blueprintLibrary.TryRename(selected.id, blueprintName,
+                            out string error)) toasts.Enqueue("Blueprint renamed", Time.time);
+                    else constructionMessage = error;
+                }
+                if (GUILayout.Button("Duplicate"))
+                {
+                    if (blueprintLibrary.TryDuplicate(selected.id, out string error))
+                        toasts.Enqueue("Blueprint duplicated", Time.time);
+                    else constructionMessage = error;
+                }
+                if (GUILayout.Button("Delete"))
+                {
+                    if (blueprintLibrary.TryDelete(selected.id, out string error))
+                    {
+                        selectedBlueprintId = null;
+                        toasts.Enqueue("Blueprint deleted", Time.time);
+                    }
+                    else constructionMessage = error;
+                }
+            }
+            GUILayout.EndScrollView();
+        }
+
         private void DrawHelpPanel()
         {
             Rect rect = DemoPanelRect;
@@ -2460,7 +3221,10 @@ namespace FantasyShapez.Buildings
             GUILayout.Label("Choose a building from the hotbar or Build Menu.");
             GUILayout.Label("R rotates. Esc or Right Click cancels the current tool.");
             GUILayout.Label("Right Click removes a building; hold and drag to remove more.");
-            GUILayout.Label("Shift drag selects; Ctrl+C copies, Ctrl+V pastes, Ctrl+X cuts.");
+            GUILayout.Label("Click selects; Shift click toggles; Shift drag adds a rectangle.");
+            GUILayout.Label("M moves selection. Ctrl+C copies, Ctrl+V pastes, Ctrl+X cuts.");
+            GUILayout.Label("Ctrl+Z undoes construction; Ctrl+Y redoes it.");
+            GUILayout.Label("Save selected layouts in the Build Menu Blueprint Library.");
             GUILayout.Label("Click Market to view the current order.");
             GUILayout.Label("NEW clears when you select that machine or crop.");
             GUILayout.Label("Select a new crop in a Farm Plot, then collect it with a Harvester.");
@@ -2827,7 +3591,8 @@ namespace FantasyShapez.Buildings
         private bool CanRemovePlacement(BuildingPlacement placement)
         {
             if (buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
-                return CanRemove(instance.gameObject);
+                return CanRemove(instance.gameObject) &&
+                    (!foodDemoControls || !HasActiveDemoItems(instance.gameObject));
             return foodDemoControls &&
                 propertySupply?.TryGetClipboardConnection(placement,
                     out PropertyConnection connection) == true &&
@@ -2906,6 +3671,18 @@ namespace FantasyShapez.Buildings
         public bool Remove(BuildingPlacement placement)
         {
             return selectedSet.Remove(placement) && selectedPlacements.Remove(placement);
+        }
+
+        public bool Add(BuildingPlacement placement)
+        {
+            if (placement == null || !selectedSet.Add(placement)) return false;
+            selectedPlacements.Add(placement);
+            return true;
+        }
+
+        public void Toggle(BuildingPlacement placement)
+        {
+            if (!Remove(placement)) Add(placement);
         }
 
         public void Clear()

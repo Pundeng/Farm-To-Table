@@ -34,6 +34,10 @@ namespace FantasyShapez.Tests.EditMode
         public void PropertyClipboard_RotationKeepsCropAndRelativeCell()
         {
             var option = new BuildingPlacementOption();
+            // This assertion describes a one-cell building. The option's
+            // default prototype footprint is 2x1 and shifts its rotated anchor.
+            typeof(BuildingDefinition).GetField("footprint", BindingFlags.NonPublic |
+                BindingFlags.Instance)?.SetValue(option.Definition, Vector2Int.one);
             var connection = new PropertyConnection(new Vector2Int(3, 1),
                 Vector2Int.zero, CookingProperty.Heat,
                 PropertyConnectionKind.Pipe);

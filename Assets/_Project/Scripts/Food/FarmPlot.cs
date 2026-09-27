@@ -6,6 +6,8 @@ namespace FantasyShapez.Food
 {
     public sealed class FarmPlot : MonoBehaviour
     {
+        public event Action<FarmPlot> CropChanging;
+        public event Action<FarmPlot> CropChanged;
         [SerializeField] private CropDefinition[] availableCrops =
         {
             new CropDefinition("Apple",
@@ -104,7 +106,9 @@ namespace FantasyShapez.Food
                 throw new InvalidOperationException("The crop is not unlocked.");
             }
 
+            CropChanging?.Invoke(this);
             process.SelectCrop(crop);
+            CropChanged?.Invoke(this);
         }
 
         public bool IsCropUnlocked(CropDefinition crop) =>
