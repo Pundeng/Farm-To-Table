@@ -148,6 +148,41 @@ namespace FantasyShapez.Tests.EditMode
         }
 
         [Test]
+        public void RecipeReadStateRoundTripsAndOldFilesTreatDiscoveriesAsViewed()
+        {
+            using var source = new Session();
+            Assert.That(source.Discoveries.Record(source.Recipe), Is.True);
+            DiscoveredRecipe recipe = source.Discoveries.DiscoveredRecipes[0];
+            Assert.That(source.Discoveries.IsNew(recipe), Is.True);
+            string json = source.Saves.ToJson();
+            using var restored = new Session();
+            Assert.That(restored.Saves.TryLoadJson(json, out string error), Is.True, error);
+            Assert.That(restored.Discoveries.DiscoveredRecipes, Has.Count.EqualTo(1));
+            Assert.That(restored.Discoveries.IsNew(recipe), Is.True);
+            restored.Discoveries.MarkViewed(recipe);
+            using var viewed = new Session();
+            Assert.That(viewed.Saves.TryLoadJson(restored.Saves.ToJson(),
+                out error), Is.True, error);
+            Assert.That(viewed.Discoveries.IsNew(recipe), Is.False);
+
+            var oldData = JsonUtility.FromJson<ProgressionSaveData>(json);
+            oldData.unseenDiscoveries = null;
+            using var oldSave = new Session();
+            Assert.That(oldSave.Saves.TryLoadJson(JsonUtility.ToJson(oldData),
+                out error), Is.True, error);
+            Assert.That(oldSave.Discoveries.DiscoveredRecipes, Has.Count.EqualTo(1));
+            Assert.That(oldSave.Discoveries.IsNew(recipe), Is.False);
+
+            var invalid = JsonUtility.FromJson<ProgressionSaveData>(json);
+            invalid.unseenDiscoveries = new[]
+                { invalid.unseenDiscoveries[0], invalid.unseenDiscoveries[0] };
+            using var rejected = new Session();
+            Assert.That(rejected.Saves.TryLoadJson(JsonUtility.ToJson(invalid),
+                out _), Is.False);
+            Assert.That(rejected.Discoveries.DiscoveredRecipes, Is.Empty);
+        }
+
+        [Test]
         public void InvalidOrMissingSave_LeavesLiveProgressionUntouched()
         {
             using var session = new Session();

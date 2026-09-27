@@ -151,7 +151,7 @@ namespace FantasyShapez.Logistics
             itemLabel.gameObject.SetActive(false);
         }
 
-        private static string FoodLabel(FoodItemData food) => food.Id.ToLowerInvariant() switch
+        public static string FoodLabel(FoodItemData food) => food.Id.ToLowerInvariant() switch
         {
             "apple" => "AP", "onion" => "ON", "tomato" => "TO",
             "potato" => "PO", "basil" => "BA", "dried apple" => "DA",
@@ -160,7 +160,7 @@ namespace FantasyShapez.Logistics
                 ? food.Id.Substring(0, 2).ToUpperInvariant() : food.Id.ToUpperInvariant()
         };
 
-        private static Color FoodColor(FoodItemData food) => food.Id.ToLowerInvariant() switch
+        public static Color FoodColor(FoodItemData food) => food.Id.ToLowerInvariant() switch
         {
             "apple" => new Color(0.91f, 0.23f, 0.18f),
             "onion" => new Color(0.78f, 0.62f, 0.87f),

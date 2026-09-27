@@ -1,3 +1,4 @@
+using System;
 using FantasyShapez.Food;
 using FantasyShapez.UI;
 using NUnit.Framework;
@@ -6,6 +7,49 @@ namespace FantasyShapez.Tests.EditMode
 {
     public sealed class RecipeDiscoveryPanelTests
     {
+        [Test]
+        public void CurrentOrderRevealsItsRecipeAndPrerequisitesButNotFutureRecipes()
+        {
+            var apple = new FoodItemData("Apple", FoodItemKind.RawIngredient);
+            var potato = new FoodItemData("Potato", FoodItemKind.RawIngredient);
+            var dried = new FoodItemData("Dried Apple", FoodItemKind.ProcessedFood);
+            var cut = new FoodItemData("Cut Potato", FoodItemKind.ProcessedFood);
+            var fries = new FoodItemData("French Fries", FoodItemKind.ProcessedFood);
+            var driedRecipe = new ProcessingRecipe(apple, CookingProperty.Air, dried);
+            var friesRecipe = new ProcessingRecipe(cut, CookingProperty.Heat, fries);
+            var cutterRecipe = new CuttingRecipe(potato, cut);
+            var order = new FoodOrder("fries", "French Fries",
+                new[] { new FoodOrderRequirement(fries, 2) },
+                Array.Empty<UnlockKey>());
+            var catalog = new RecipeBookCatalog(
+                new[] { driedRecipe, friesRecipe }, Array.Empty<MixingRecipe>(),
+                new[] { cutterRecipe }, Array.Empty<DiscoveredRecipe>(), order);
+
+            Assert.That(catalog.Disclosure(new DiscoveredRecipe(friesRecipe)),
+                Is.EqualTo(RecipeDisclosure.Hint));
+            Assert.That(catalog.Disclosure(new DiscoveredRecipe(cutterRecipe)),
+                Is.EqualTo(RecipeDisclosure.Hint));
+            Assert.That(catalog.Disclosure(new DiscoveredRecipe(driedRecipe)),
+                Is.EqualTo(RecipeDisclosure.Unknown));
+            Assert.That(catalog.DiscoveredCount, Is.Zero);
+            Assert.That(catalog.FindVisibleProducer(cut).Kind,
+                Is.EqualTo(DiscoveredRecipeKind.Cutting));
+        }
+
+        [Test]
+        public void ViewingOneDiscoveryLeavesAnotherNew()
+        {
+            var registry = new RecipeDiscoveryRegistry();
+            var apple = new FoodItemData("Apple", FoodItemKind.RawIngredient);
+            var dried = new FoodItemData("Dried Apple", FoodItemKind.ProcessedFood);
+            var baked = new FoodItemData("Baked Apple", FoodItemKind.ProcessedFood);
+            registry.Record(new ProcessingRecipe(apple, CookingProperty.Air, dried));
+            registry.Record(new ProcessingRecipe(apple, CookingProperty.Heat, baked));
+            Assert.That(registry.MarkViewed(registry.DiscoveredRecipes[0]), Is.True);
+            Assert.That(registry.IsNew(registry.DiscoveredRecipes[0]), Is.False);
+            Assert.That(registry.IsNew(registry.DiscoveredRecipes[1]), Is.True);
+        }
+
         [Test]
         public void FirstDiscoveryShowsPopupAndBookUpdatesWithoutRepeatPopup()
         {

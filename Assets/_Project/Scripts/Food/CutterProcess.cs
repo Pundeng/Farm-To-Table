@@ -6,6 +6,7 @@ namespace FantasyShapez.Food
 
     public sealed class CutterProcess
     {
+        public const int OutputQuantity = 2;
         private readonly CuttingRecipeCatalog catalog;
         private readonly RecipeDiscoveryRegistry discoveries;
         private readonly float duration;

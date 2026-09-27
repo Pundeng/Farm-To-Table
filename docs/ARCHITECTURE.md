@@ -2,6 +2,14 @@
 
 This document describes the current Unity **6000.5.2f1** implementation. The [Cozy Food Factory GDD](COZY_FOOD_FACTORY_GDD.md) describes intended rules; this map records what the repository currently does. `Demo.unity` is the food-only playable scene; `Prototype.unity` remains for legacy rune regression.
 
+## UX-05 recipe experience
+
+`RecipeDiscoveryRegistry` still records only the first actual production of a Processor, Mixer, or Cutter recipe. It now tracks unseen discovered identities separately. The Recipe Discovery card uses the shared food color and label from Belt visuals and presents ingredient, Property, machine, output, and Book confirmation. If order completion and recipe discovery are both pending, the discovery modal displays first and the UX-04 order card waits. Neither viewing an order hint nor opening a Book category records discovery.
+
+`RecipeDiscoveryPanel` builds its Book from the controller's authored Processing, Mixing, and Cutting recipes. All, Cutter, Processor, and Mixer filters show discovered names and summaries, current-objective hints with ORDER, and anonymous Unknown Recipe entries for unrelated future recipes. Current-order output and its manufacturing prerequisites are revealed recursively; that visibility does not change unlock or discovery state. Opening a discovered detail clears only that recipe's NEW indicator. Details follow authored inputs and Property; Cutter quantity comes from the paired-output process, Mixer inputs remain unordered, and raw ingredients lead to Farm Plot guidance. Prerequisite links use Back navigation. Clicking a working food machine opens the matching filter; a compact Recipes control beside a hovered problem machine gives the same access while its body click still emphasizes UX-02 port feedback. An available Build action calls the existing construction tool selection and retains rotation memory and placement behavior; locked machines show their existing requirement.
+
+Version-2 progression saves add an optional `unseenDiscoveries` array alongside existing discovery records. The reader validates it as a unique subset of authored, already discovered recipes. Older saves without the field treat prior discoveries as viewed; new production after load still receives NEW. Unity Editor compilation, EditMode tests, and Play Mode appearance/input remain to be checked in the running Editor.
+
 ## UX-04 progression presentation
 
 The Demo keeps compact active-order progress attached to the Market. Its click popover shows the current order, requirements, unlock rewards, and existing stage guidance; Seeds, Sales, and History switch to one separate detail view. Order completion captures the completed order and only newly granted unlocks before the next objective appears, queues one modal card per completion, and briefly labels the Market in world space. Orders have no separate currency bonus in the current data; delivery sales still appear as currency Toasts. Order unlock and completion Toasts are suppressed while the card covers those events.
@@ -72,7 +80,7 @@ Prototype's key **7** and Demo's key **4** uses the finalized three-cell Process
 
 ## Phase 3 recipe discovery tracking
 
-[`RecipeDiscoveryRegistry.cs`](../Assets/_Project/Scripts/Food/RecipeDiscoveryRegistry.cs) records the first completed production of each processing or mixing recipe. The Processor records when its timer completes; the Mixer records when its second ingredient creates output. The placement controller shares one registry across both machine types and exposes its read-only discovered recipe list and first-discovery event. [`RecipeDiscoveryPanel.cs`](../Assets/_Project/Scripts/UI/RecipeDiscoveryPanel.cs) uses that event for a dismissible first-discovery popup and reads the live list for a minimal Recipe Book. The recipe's output food ID serves as its display name. Discovered recipe identities are included in the progression save; the GDD's full discovery animation is not implemented.
+[`RecipeDiscoveryRegistry.cs`](../Assets/_Project/Scripts/Food/RecipeDiscoveryRegistry.cs) records the first completed production of each Processor, Mixer, or Cutter recipe. The Processor and Cutter record when their timers complete; the Mixer records when its second ingredient creates output. The placement controller shares one registry and exposes its read-only discovered recipe list and first-discovery event. [`RecipeDiscoveryPanel.cs`](../Assets/_Project/Scripts/UI/RecipeDiscoveryPanel.cs) uses that event for the UX-05 discovery card and authored-recipe Book. Discovered recipe identities and unseen indicators are included in progression saves; the GDD's full discovery animation remains deferred.
 
 ## Phase 3 orders and shared unlocks
 

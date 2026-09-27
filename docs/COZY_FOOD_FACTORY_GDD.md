@@ -461,30 +461,32 @@ The recipe catalog and final progression order are TBD.
 
 Recipe discovery is a primary emotional reward.
 
-The desired presentation is inspired by the anticipation and reveal of Pokémon evolution sequences.
-
-The animation should feel cute, playful, and celebratory.
+An expanded celebratory transformation animation remains a later presentation
+idea. UX-05 uses a compact card with the existing provisional food visual.
 
 ## Discovery Sequence
 
 1. A previously unknown valid recipe is produced.
-2. A discovery popup appears.
-3. A short anticipation animation begins.
-4. Ingredients or the resulting food undergo a playful transformation.
-5. The new food is revealed.
-6. The recipe is registered in the recipe journal.
+2. The recipe is recorded once and receives NEW in the Recipe Book.
+3. A compact Discovery Card presents the result, ingredients, Property when needed,
+   manufacturing machine, output, and confirmation that the Book was updated.
+4. If an order also completes, the Discovery Card appears before the Order Card.
+5. Opening that recipe's Book detail clears its NEW indicator. A hint or category
+   view does not clear it or count as discovery.
 
-Example:
+The Book defaults to All Recipes and filters to Cutter, Processor, or Mixer.
+Discovered recipes show full manufacturing details and prerequisite links. The
+current objective and its necessary manufacturing prerequisites may show concise
+hints without being discovered. Unrelated future recipes stay anonymous. Raw
+ingredients show growing guidance. Available machine details can activate the
+existing Build tool; locked machines show their unlock requirement.
+Food machines provide compact contextual Book access without replacing their
+problem indicators or port feedback.
 
-Basil + Pine Nuts
-
-"Something is happening...?"
-
-→ Transformation
-
-→ PESTO!
-
-NEW RECIPE DISCOVERED!
+The first production of a recipe remains the only discovery trigger. The Book
+uses authored recipe definitions for ingredients, Property, and output quantity.
+Recipe discovery and viewed state survive Save/Load; older saves with discovery
+records but no viewed state treat those discoveries as already viewed.
 
 ## Presentation Goals
 
@@ -891,7 +893,7 @@ The exact palette, sprite resolution, animation style, and asset pipeline are TB
 - Blocked machines stop.
 - Blocked output ports display red warnings.
 - Incorrect ingredients can be discarded.
-- New recipe discoveries trigger popup animations.
+- New recipe discoveries show one compact card and receive NEW in the Recipe Book.
 - The Demo keeps order progress attached to the Market. Clicking it opens a compact
   current-order popover with separate Seeds, Sales, and History detail views.
 - Each completed order shows one dismissible card with its requirements, actual
@@ -909,7 +911,6 @@ The exact palette, sprite resolution, animation style, and asset pipeline are TB
 - Final machine rotation affordances
 - Final pipe placement presentation
 - Machine buffer clearing interface
-- Recipe journal layout
 - Building previews
 - Filtering interface
 - Game speed controls

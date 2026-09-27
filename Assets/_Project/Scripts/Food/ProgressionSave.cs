@@ -22,6 +22,7 @@ namespace FantasyShapez.Food
         public SavedUnlock[] unseenUnlocks;
         public string[] purchasedCropIds;
         public SavedRecipe[] discoveries;
+        public SavedRecipe[] unseenDiscoveries;
         public FactoryWorldData world;
     }
 
@@ -324,23 +325,26 @@ namespace FantasyShapez.Food
                     category = key.Category, id = key.Id
                 }).ToArray(),
                 purchasedCropIds = shop.PurchasedCropIds.ToArray(),
-                discoveries = discoveries.DiscoveredRecipes.Select(recipe => new SavedRecipe
-                {
-                    kind = recipe.Kind,
-                    ingredientAId = recipe.IngredientA.Id,
-                    ingredientAKind = recipe.IngredientA.Kind,
-                    ingredientBId = recipe.IngredientB?.Id,
-                    ingredientBKind = recipe.IngredientB?.Kind ?? default,
-                    property = recipe.Property ?? default,
-                    outputId = recipe.Output.Id,
-                    outputKind = recipe.Output.Kind
-                }).ToArray(),
+                discoveries = discoveries.DiscoveredRecipes.Select(WriteRecipe).ToArray(),
+                unseenDiscoveries = discoveries.UnseenRecipes.Select(WriteRecipe).ToArray(),
                 world = captureWorld()
             };
 
             validateWorld(data.world, data.unlocks);
             return data;
         }
+
+        private static SavedRecipe WriteRecipe(DiscoveredRecipe recipe) => new()
+        {
+            kind = recipe.Kind,
+            ingredientAId = recipe.IngredientA.Id,
+            ingredientAKind = recipe.IngredientA.Kind,
+            ingredientBId = recipe.IngredientB?.Id,
+            ingredientBKind = recipe.IngredientB?.Kind ?? default,
+            property = recipe.Property ?? default,
+            outputId = recipe.Output.Id,
+            outputKind = recipe.Output.Kind
+        };
 
         private void ApplyValidated(ProgressionSaveData data, bool apply = true)
         {
@@ -494,6 +498,18 @@ namespace FantasyShapez.Food
                 discoveries.Add(recipe);
             }
 
+            var unseenDiscoveries = new List<DiscoveredRecipe>();
+            var uniqueUnseenRecipes = new HashSet<DiscoveredRecipe>();
+            foreach (SavedRecipe saved in data.unseenDiscoveries ??
+                Array.Empty<SavedRecipe>())
+            {
+                DiscoveredRecipe recipe = ResolveRecipe(saved);
+                if (recipe == null || !uniqueRecipes.Contains(recipe) ||
+                    !uniqueUnseenRecipes.Add(recipe))
+                    throw new ArgumentException("Invalid unseen discovery.");
+                unseenDiscoveries.Add(recipe);
+            }
+
             // All inputs are checked before changing the live session.
             if (!apply)
             {
@@ -505,7 +521,7 @@ namespace FantasyShapez.Food
             this.unlocks.RestoreUnseen(unseenUnlocks);
             shop.RestorePurchases(purchases);
             orders.Restore(completedCount, progress);
-            this.discoveries.Restore(discoveries);
+            this.discoveries.Restore(discoveries, unseenDiscoveries);
         }
 
         private DiscoveredRecipe ResolveRecipe(SavedRecipe saved)
