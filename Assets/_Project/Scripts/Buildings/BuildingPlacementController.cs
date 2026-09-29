@@ -1917,11 +1917,6 @@ namespace CozyFoodFactory.Buildings
             {
                 return;
             }
-            if (foodDemoControls && HasActiveDemoItems(instance.gameObject))
-            {
-                constructionMessage = $"Empty and stop {placement.DefinitionId} before removing it.";
-                return;
-            }
 
             if (occupancy.Remove(placement) && buildingInstances.Remove(placement))
             {
@@ -3295,8 +3290,7 @@ namespace CozyFoodFactory.Buildings
         private bool CanRemovePlacement(BuildingPlacement placement)
         {
             if (buildingInstances.TryGetValue(placement, out PlacedBuilding instance))
-                return CanRemove(instance.gameObject) &&
-                    (!foodDemoControls || !HasActiveDemoItems(instance.gameObject));
+                return CanRemove(instance.gameObject);
             return foodDemoControls &&
                 propertySupply?.TryGetClipboardConnection(placement,
                     out PropertyConnection connection) == true &&
