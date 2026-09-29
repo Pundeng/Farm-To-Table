@@ -125,7 +125,7 @@ namespace CozyFoodFactory.Food
         {
             if (connections.ContainsKey(cell) ||
                 !TryGetSingleAdjacentOwner(cell, out Vector2Int sourceCell,
-                    requireConductor: true) ||
+                    requireConductor: false) ||
                 TouchesForeignNetwork(cell, sourceCell))
             {
                 return false;
@@ -136,6 +136,43 @@ namespace CozyFoodFactory.Food
                 property, PropertyConnectionKind.Pipe));
             return true;
         }
+
+        public bool TryAddPipe(Vector2Int cell, Vector2Int sourceCell)
+            {
+                if (connections.ContainsKey(cell) ||
+                    !connections.TryGetValue(sourceCell, out PropertyConnection source) ||
+                    source.Kind != PropertyConnectionKind.Source)
+                {
+                    return false;
+                }
+
+                bool touchesOwnNetwork = false;
+                foreach (Vector2Int direction in Directions)
+                {
+                    if (!connections.TryGetValue(cell + direction,
+                            out PropertyConnection neighbor) ||
+                        neighbor.SourceCell != sourceCell)
+                    {
+                        continue;
+                    }
+
+                    if (neighbor.Kind is PropertyConnectionKind.Source or
+                        PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe)
+                    {
+                        touchesOwnNetwork = true;
+                        break;
+                    }
+                }
+
+                if (!touchesOwnNetwork)
+                {
+                    return false;
+                }
+
+                connections.Add(cell, new PropertyConnection(cell, sourceCell,
+                    source.Property, PropertyConnectionKind.Pipe));
+                return true;
+            }
 
         // The caller supplies a demand cell; Processor port locations are not assumed here.
         public bool TryAddDemand(Vector2Int cell, int units = 1,
@@ -177,7 +214,7 @@ namespace CozyFoodFactory.Food
                 source.Property != saved.Property ||
                 saved.Kind == PropertyConnectionKind.Collector &&
                     !AreAdjacent(saved.Cell, saved.SourceCell) ||
-                TouchesForeignNetwork(saved.Cell, saved.SourceCell))
+                (saved.Kind == PropertyConnectionKind.Demand && TouchesForeignNetwork(saved.Cell, saved.SourceCell)))
             {
                 return false;
             }
@@ -260,7 +297,7 @@ namespace CozyFoodFactory.Food
                         connection.SourceCell != sourceCell ||
                         connection.Kind == PropertyConnectionKind.Demand ||
                         (cell == sourceCell &&
-                         connection.Kind != PropertyConnectionKind.Collector))
+                         connection.Kind is not PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe))
                     {
                         continue;
                     }
