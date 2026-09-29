@@ -180,9 +180,13 @@ namespace CozyFoodFactory.Food
             for (int index = 0; index < cells.Count; index++)
                 valid[index] = occupancy.CanPlace(cells[index], Vector2Int.one,
                         BuildingRotation.Degrees0) &&
-                    preview.TryAddPipe(cells[index]);
+                        sources.Count > 0 && preview.TryAddPipe(cells[index], sources[selectedSourceIndex]);
             return valid;
         }
+
+        private bool TryPlacePipe(Vector2Int cell, Vector2Int sourceCell) =>
+            TryPlaceConnection(cell, "Pipe",
+                () => network.TryAddPipe(cell, sourceCell));
 
         public bool HasPipeAt(Vector2Int cell) =>
             network.TryGetConnection(cell, out PropertyConnection connection) &&
@@ -475,7 +479,7 @@ namespace CozyFoodFactory.Food
                     try
                     {
                         for (int index = 0; index < pipePath.Count; index++)
-                            if (valid[index]) TryPlacePipe(pipePath[index]);
+                            if (valid[index]) TryPlacePipe(pipePath[index], sources[selectedSourceIndex]);
                     }
                     finally
                     {
