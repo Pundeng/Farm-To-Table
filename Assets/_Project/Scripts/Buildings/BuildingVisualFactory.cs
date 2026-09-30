@@ -13,7 +13,7 @@ namespace CozyFoodFactory.Buildings
     public enum MachineFeedbackPort
     {
         None = 0, InputA = 1, InputB = 2, Property = 4,
-        OutputA = 8, OutputB = 16, Combination = 32, Crop = 64
+        OutputA = 8, OutputB = 16, Combination = 32, Crop = 64, InputC = 128, OutputC = 256
     }
 
     public readonly struct MachineFeedback
@@ -223,7 +223,8 @@ namespace CozyFoodFactory.Buildings
                         (cell.x - (definition.Footprint.x - 1) * 0.5f) * cellSize,
                         (cell.y - (definition.Footprint.y - 1) * 0.5f) * cellSize,
                         0f);
-                    tile.transform.localScale = new Vector3(cellSize, cellSize, 1f);
+                    float tileSize = definition.Id == "TradeBuilding" ? cellSize * 0.96f : cellSize;
+                    tile.transform.localScale = new Vector3(tileSize, tileSize, 1f);
                 }
 
                 return root;
@@ -278,7 +279,7 @@ namespace CozyFoodFactory.Buildings
 
         public static void CreatePortMarkers(Transform parent,
             IReadOnlyList<BuildingPortPreview> ports, float cellSize,
-            BuildingRotation rotation)
+            BuildingRotation rotation, bool arrowsOnly = false)
         {
             int inputs = 0;
             int outputs = 0;
@@ -305,13 +306,21 @@ namespace CozyFoodFactory.Buildings
                 };
                 if (port.Kind == BuildingPortKind.Input && inputCount > 1 ||
                     port.Kind == BuildingPortKind.Output && outputCount > 1)
-                    label += ordinal == 1 ? " A" : " B";
+                    label += " " + (char)('A' + ordinal - 1);
                 var marker = new GameObject($"{label} port");
                 marker.transform.SetParent(parent, false);
                 marker.transform.localPosition = new Vector3(
                     port.LocalPosition.x * cellSize,
                     port.LocalPosition.y * cellSize, -0.04f);
                 marker.transform.localScale = Vector3.one * 0.24f * cellSize;
+                if (arrowsOnly)
+                {
+                    marker.transform.localRotation = Quaternion.Euler(0f, 0f, -(int)port.LocalDirection);
+                    Color arrowColor = port.Kind == BuildingPortKind.Input
+                        ? BuildingPortPreviewLayouts.InputColor : new Color(1f, 0.2f, 0.15f, 1f);
+                    CreateTradeArrow(marker.transform, arrowColor);
+                    continue;
+                }
                 if (port.Kind == BuildingPortKind.PropertyInput)
                     marker.transform.localRotation = Quaternion.Euler(0f, 0f, 45f);
                 SpriteRenderer renderer = marker.AddComponent<SpriteRenderer>();
@@ -345,6 +354,27 @@ namespace CozyFoodFactory.Buildings
             MachineFeedbackView view = parent.gameObject.AddComponent<MachineFeedbackView>();
             view.Initialize(cellSize);
             return view;
+        }
+
+        // Same three-part arrow geometry as the existing placement preview.
+        private static void CreateTradeArrow(Transform parent, Color color)
+        {
+            CreateTradeArrowPart(parent, "Shaft", new Vector2(0f, .04f), new Vector2(.07f, .24f), 0f, color);
+            CreateTradeArrowPart(parent, "Left", new Vector2(-.06f, .12f), new Vector2(.07f, .16f), -45f, color);
+            CreateTradeArrowPart(parent, "Right", new Vector2(.06f, .12f), new Vector2(.07f, .16f), 45f, color);
+        }
+        private static void CreateTradeArrowPart(Transform parent, string name,
+            Vector2 position, Vector2 scale, float angle, Color color)
+        {
+            var part = new GameObject(name);
+            part.transform.SetParent(parent, false);
+            part.transform.localPosition = new Vector3(position.x / .24f, position.y / .24f, -.03f);
+            part.transform.localScale = new Vector3(scale.x / .24f, scale.y / .24f, 1f);
+            part.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
+            var renderer = part.AddComponent<SpriteRenderer>();
+            renderer.sprite = PlaceholderSprite;
+            renderer.color = color;
+            renderer.sortingOrder = 22;
         }
 
         private static Sprite GetPlaceholderSprite()
@@ -387,8 +417,10 @@ namespace CozyFoodFactory.Buildings
                 {
                     "IN port" or "IN A port" => MachineFeedbackPort.InputA,
                     "IN B port" => MachineFeedbackPort.InputB,
+                    "IN C port" => MachineFeedbackPort.InputC,
                     "OUT port" or "OUT A port" => MachineFeedbackPort.OutputA,
                     "OUT B port" => MachineFeedbackPort.OutputB,
+                    "OUT C port" => MachineFeedbackPort.OutputC,
                     "PROP port" => MachineFeedbackPort.Property,
                     _ => MachineFeedbackPort.None
                 };

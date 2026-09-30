@@ -225,11 +225,12 @@ namespace CozyFoodFactory.Buildings
                 new Vector3(port.LocalPosition.x, port.LocalPosition.y, -0.04f) * cellSize;
             indicator.transform.localRotation =
                 Quaternion.Euler(0f, 0f, -(int)port.LocalDirection);
+            bool trade = currentDefinition?.Id == "TradeBuilding";
             Color color = port.Kind switch
             {
                 BuildingPortKind.Input => BuildingPortPreviewLayouts.InputColor,
                 BuildingPortKind.PropertyInput => BuildingPortPreviewLayouts.PropertyInputColor,
-                _ => BuildingPortPreviewLayouts.OutputColor
+                _ => trade ? new Color(1f, .2f, .15f, 1f) : BuildingPortPreviewLayouts.OutputColor
             };
             CreateIndicatorPart(
                 indicator.transform,
@@ -260,14 +261,14 @@ namespace CozyFoodFactory.Buildings
                 sameKind++;
                 if (portIndex <= index) ordinal++;
             }
-            if (sameKind > 1)
+            if (sameKind > 1 && !trade)
             {
-                var label = new GameObject($"Port {(ordinal == 1 ? "A" : "B")}");
+                var label = new GameObject($"Port {(((char)('A' + ordinal - 1)).ToString())}");
                 label.transform.SetParent(indicator.transform, false);
                 label.transform.localPosition = new Vector3(0f, 0.23f * cellSize,
                     -0.05f);
                 TextMesh text = label.AddComponent<TextMesh>();
-                text.text = ordinal == 1 ? "A" : "B";
+                text.text = ((char)('A' + ordinal - 1)).ToString();
                 text.fontSize = 32;
                 text.characterSize = 0.15f * cellSize;
                 text.anchor = TextAnchor.MiddleCenter;
