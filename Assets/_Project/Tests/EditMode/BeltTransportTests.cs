@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using CozyFoodFactory.Buildings;
 using CozyFoodFactory.Logistics;
 using CozyFoodFactory.Food;
@@ -232,6 +233,224 @@ namespace CozyFoodFactory.Tests.EditMode
             Assert.DoesNotThrow(() => system.Advance(2f));
             Assert.That(upstream.Item.Item, Is.SameAs(food));
             Assert.That(upstream.Item.Progress, Is.EqualTo(1f));
+        }
+
+        [Test]
+        public void Split_AlternatesAvailableOutputs_AndUsesUnblockedFallback()
+        {
+            var system = new BeltTransportSystem(1f);
+            BeltCell junction = system.AddBelt(Vector2Int.zero, GridDirection.North);
+            junction.SetOutputs(BeltCell.Bit(GridDirection.North) |
+                BeltCell.Bit(GridDirection.East));
+            var north = new TestReceiver(Vector2Int.up);
+            var east = new TestReceiver(Vector2Int.right);
+            system.RegisterInputReceiver(north);
+            system.RegisterInputReceiver(east);
+
+            for (int index = 0; index < 6; index++)
+            {
+                FoodItemData food = new($"food-{index}", FoodItemKind.RawIngredient);
+                Assert.That(junction.TryAccept(food, GridDirection.West), Is.True);
+                system.Advance(1f);
+                Assert.That(junction.HasItem, Is.False);
+            }
+            Assert.That(north.Items.Count, Is.EqualTo(3));
+            Assert.That(east.Items.Count, Is.EqualTo(3));
+
+            north.Blocked = true;
+            FoodItemData fallback = CreateFood();
+            junction.TryAccept(fallback, GridDirection.West);
+            system.Advance(1f);
+            Assert.That(east.Items[^1], Is.SameAs(fallback));
+
+            east.Blocked = true;
+            FoodItemData waiting = CreateFood();
+            junction.TryAccept(waiting, GridDirection.West);
+            system.Advance(1f);
+            Assert.That(junction.Item.Item, Is.SameAs(waiting));
+            east.Blocked = false;
+            system.Advance(1f);
+            Assert.That(junction.HasItem, Is.False);
+            Assert.That(east.Items[^1], Is.SameAs(waiting));
+        }
+
+        [Test]
+        public void Merge_ChoosesOneInputAndAlternatesAfterDestinationReopens()
+        {
+            var system = new BeltTransportSystem(1f);
+            BeltCell west = system.AddBelt(Vector2Int.left, GridDirection.East);
+            BeltCell south = system.AddBelt(Vector2Int.down, GridDirection.North);
+            BeltCell merge = system.AddBelt(Vector2Int.zero, GridDirection.East);
+            var sink = new TestReceiver(Vector2Int.right);
+            system.RegisterInputReceiver(sink);
+            FoodItemData first = new("west", FoodItemKind.RawIngredient);
+            FoodItemData second = new("south", FoodItemKind.RawIngredient);
+            west.TryAccept(first, GridDirection.East);
+            south.TryAccept(second, GridDirection.North);
+
+            system.Advance(1f);
+            Assert.That(merge.HasItem, Is.True);
+            Assert.That(west.HasItem ^ south.HasItem, Is.True);
+            FoodItemData firstWinner = (FoodItemData)merge.Item.Item;
+            system.Advance(1f);
+            system.Advance(1f);
+            Assert.That(merge.Item.Item, Is.Not.SameAs(firstWinner));
+            Assert.That(sink.Items, Does.Contain(firstWinner));
+            Assert.That(west.HasItem || south.HasItem, Is.False);
+        }
+
+        [Test]
+        public void Merge_WinnerDoesNotDependOnBeltRegistrationOrder()
+        {
+            static string Winner(bool reverse)
+            {
+                var system = new BeltTransportSystem(1f);
+                BeltCell west;
+                BeltCell south;
+                if (reverse)
+                {
+                    south = system.AddBelt(Vector2Int.down, GridDirection.North);
+                    west = system.AddBelt(Vector2Int.left, GridDirection.East);
+                }
+                else
+                {
+                    west = system.AddBelt(Vector2Int.left, GridDirection.East);
+                    south = system.AddBelt(Vector2Int.down, GridDirection.North);
+                }
+                BeltCell merge = system.AddBelt(Vector2Int.zero, GridDirection.East);
+                west.TryAccept(new FoodItemData("west", FoodItemKind.RawIngredient),
+                    GridDirection.East);
+                south.TryAccept(new FoodItemData("south", FoodItemKind.RawIngredient),
+                    GridDirection.North);
+                system.Advance(1f);
+                Assert.That(west.HasItem ^ south.HasItem, Is.True);
+                return ((FoodItemData)merge.Item.Item).Id;
+            }
+
+            Assert.That(Winner(false), Is.EqualTo(Winner(true)));
+        }
+
+        [Test]
+        public void JunctionMask_RoundTripsThroughWorldJson()
+        {
+            var world = new FactoryWorldData
+            {
+                buildings = new[] { new SavedBuilding
+                {
+                    definitionId = nameof(Belt), rotation = BuildingRotation.Degrees90,
+                    belt = new SavedBelt
+                    {
+                        outputMask = BeltCell.Bit(GridDirection.East) |
+                            BeltCell.Bit(GridDirection.North),
+                        nextOutputIndex = 2,
+                        nextInputIndex = 3
+                    }
+                } }
+            };
+            string json = JsonUtility.ToJson(world);
+            FactoryWorldData loaded = JsonUtility.FromJson<FactoryWorldData>(json);
+            FactoryWorldSnapshotValidator.RestoreSerializedNulls(loaded);
+            Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.Validate(loaded));
+            Assert.That(loaded.buildings[0].belt.outputMask,
+                Is.EqualTo(world.buildings[0].belt.outputMask));
+            Assert.That(loaded.buildings[0].belt.nextOutputIndex, Is.EqualTo(2));
+            Assert.That(loaded.buildings[0].belt.nextInputIndex, Is.EqualTo(3));
+        }
+
+        [Test]
+        public void ExplicitBranch_AddsOutputWithoutReversingExistingFlow()
+        {
+            int straight = BeltCell.Bit(GridDirection.East);
+            int adjacentOnly = BeltConnectionPlanner.ExtendExisting(straight,
+                GridDirection.East, GridDirection.North, false);
+            int draggedBranch = BeltConnectionPlanner.ExtendExisting(straight,
+                GridDirection.East, GridDirection.North, true);
+            Assert.That(adjacentOnly, Is.EqualTo(straight));
+            Assert.That(draggedBranch, Is.EqualTo(straight |
+                BeltCell.Bit(GridDirection.North)));
+            Assert.That((draggedBranch & BeltCell.Bit(GridDirection.East)) != 0,
+                Is.True);
+        }
+
+        [Test]
+        public void SinglePlacement_PrefersUniqueStraightInputButKeepsAmbiguousFallback()
+        {
+            Assert.That(BeltConnectionPlanner.PreferStraight(
+                BeltCell.Bit(GridDirection.East), GridDirection.North),
+                Is.EqualTo(GridDirection.East));
+            Assert.That(BeltConnectionPlanner.PreferStraight(
+                BeltCell.Bit(GridDirection.East) |
+                    BeltCell.Bit(GridDirection.North), GridDirection.South),
+                Is.EqualTo(GridDirection.South));
+            Assert.That(BeltConnectionPlanner.PreferStraight(0, GridDirection.West),
+                Is.EqualTo(GridDirection.West));
+        }
+
+        [Test]
+        public void Merge_SustainedTrafficDoesNotStarveEitherInput()
+        {
+            var system = new BeltTransportSystem(1f);
+            BeltCell west = system.AddBelt(Vector2Int.left, GridDirection.East);
+            BeltCell south = system.AddBelt(Vector2Int.down, GridDirection.North);
+            system.AddBelt(Vector2Int.zero, GridDirection.East);
+            var sink = new TestReceiver(Vector2Int.right);
+            system.RegisterInputReceiver(sink);
+            for (int tick = 0; tick < 60; tick++)
+            {
+                if (!west.HasItem)
+                    west.TryAccept(new FoodItemData("west", FoodItemKind.RawIngredient),
+                        GridDirection.East);
+                if (!south.HasItem)
+                    south.TryAccept(new FoodItemData("south", FoodItemKind.RawIngredient),
+                        GridDirection.North);
+                system.Advance(1f);
+            }
+            int westCount = sink.Items.Count(item => ((FoodItemData)item).Id == "west");
+            int southCount = sink.Items.Count(item => ((FoodItemData)item).Id == "south");
+            Assert.That(westCount, Is.GreaterThan(5));
+            Assert.That(southCount, Is.GreaterThan(5));
+            Assert.That(System.Math.Abs(westCount - southCount), Is.LessThanOrEqualTo(1));
+        }
+
+        [Test]
+        public void Merge_BlockedOutputKeepsBothInputsUntilItReopens()
+        {
+            var system = new BeltTransportSystem(1f);
+            BeltCell west = system.AddBelt(Vector2Int.left, GridDirection.East);
+            BeltCell south = system.AddBelt(Vector2Int.down, GridDirection.North);
+            BeltCell merge = system.AddBelt(Vector2Int.zero, GridDirection.East);
+            var sink = new TestReceiver(Vector2Int.right) { Blocked = true };
+            system.RegisterInputReceiver(sink);
+            merge.TryAccept(new FoodItemData("held", FoodItemKind.RawIngredient),
+                GridDirection.East);
+            west.TryAccept(new FoodItemData("west", FoodItemKind.RawIngredient),
+                GridDirection.East);
+            south.TryAccept(new FoodItemData("south", FoodItemKind.RawIngredient),
+                GridDirection.North);
+            system.Advance(2f);
+            Assert.That(merge.HasItem && west.HasItem && south.HasItem, Is.True);
+            sink.Blocked = false;
+            for (int tick = 0; tick < 5; tick++) system.Advance(1f);
+            Assert.That(sink.Items.Count, Is.EqualTo(3));
+            Assert.That(merge.HasItem || west.HasItem || south.HasItem, Is.False);
+        }
+
+        private sealed class TestReceiver : IItemInputReceiver
+        {
+            public TestReceiver(Vector2Int cell) => InputCell = cell;
+            public Vector2Int InputCell { get; }
+            public bool AllowsConcurrentInput => false;
+            public bool Blocked { get; set; }
+            public List<ITransportItem> Items { get; } = new();
+            public bool CanAcceptItem(ITransportItem item,
+                GridDirection incomingDirection) => !Blocked;
+            public bool TryAcceptItem(ITransportItem item,
+                GridDirection incomingDirection)
+            {
+                if (Blocked) return false;
+                Items.Add(item);
+                return true;
+            }
         }
 
         private static FoodItemData CreateFood()

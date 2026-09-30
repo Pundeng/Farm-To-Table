@@ -90,6 +90,7 @@ namespace CozyFoodFactory.Buildings
         private bool loadConfirmationOpen;
         private bool quitConfirmationOpen;
         private readonly BeltDragPlacementPlanner beltDragPlanner = new();
+        private bool beltRotationExplicit;
         private readonly GridDragTracker placementDrag = new();
         private readonly GridDragTracker removalDrag = new();
         private BuildingPlacement outlinedRemoval;
@@ -338,13 +339,24 @@ namespace CozyFoodFactory.Buildings
             remove => recipeDiscoveries.Discovered -= value;
         }
 
+        private bool IsChapterOnePropertyAvailable(CookingProperty property)
+        {
+            int completed = market?.CompletedOrders.Count ?? 0;
+            return property switch
+            {
+                CookingProperty.Heat => completed >= 1,
+                CookingProperty.Water => completed >= 5,
+                _ => false
+            };
+        }
+
         private void Awake()
         {
             recipeDiscoveryPanel = GetComponent<RecipeDiscoveryPanel>();
             marketPanel = market?.GetComponent<MarketPanel>();
             if (foodDemoControls)
                 blueprintLibrary = new BlueprintLibrary(System.IO.Path.Combine(
-                    Application.persistentDataPath, "cozy-food-factory-blueprints.json"));
+                    Application.persistentDataPath, "cozy-food-factory-chapter-1-blueprints.json"));
             if (market != null && !occupancy.TryRegister(
                     nameof(Market),
                     market.InputCell,
@@ -358,7 +370,9 @@ namespace CozyFoodFactory.Buildings
 
             propertySupply = new PropertySupplyPlayMode(gridSystem, hoverHighlight,
                 occupancy, transform, propertySources, !foodDemoControls,
-                propertyVisuals);
+                propertyVisuals, foodDemoControls
+                    ? new Func<CookingProperty, bool>(IsChapterOnePropertyAvailable)
+                    : null);
             if (foodDemoControls)
             {
                 propertySupply.ConstructionStarting += OnPropertyConstructionStarting;
@@ -573,6 +587,7 @@ namespace CozyFoodFactory.Buildings
                 {
                     selectedRotation = selectedRotation.RotateClockwise();
                     RememberRotation(GetSelectedOption(), selectedRotation);
+                    beltRotationExplicit = true;
                 }
                 placementPreview.Hide();
                 placementDrag.Reset();
@@ -651,7 +666,8 @@ namespace CozyFoodFactory.Buildings
             bool canPlace = CanPlaceBuilding(
                 selectedOption,
                 anchorCell,
-                previewRotation);
+                previewRotation) ||
+                CanExtendBelt(selectedOption, anchorCell);
             placementPreview.Show(
                 selectedOption,
                 gridSystem,
@@ -663,6 +679,33 @@ namespace CozyFoodFactory.Buildings
             placementPreview.SetDirectionConnectionFeedback(
                 GetBeltConnectionFeedback(selectedOption, anchorCell,
                     previewRotation));
+            if (selectedOption.Definition.Id == nameof(Belt))
+            {
+                int outgoing = BeltCell.Bit(previewRotation.ToGridDirection());
+                if (occupancy.TryGetBuilding(anchorCell, out BuildingPlacement existing) &&
+                    existing.DefinitionId == nameof(Belt) &&
+                    buildingInstances.TryGetValue(existing, out PlacedBuilding instance) &&
+                    instance.TryGetComponent(out Belt existingBelt))
+                    outgoing |= existingBelt.OutputMask;
+                int incoming = 0;
+                for (int index = 0; index < 4; index++)
+                {
+                    GridDirection direction = (GridDirection)index;
+                    Vector2Int neighborCell = anchorCell - direction.ToOffset();
+                    if (occupancy.TryGetBuilding(neighborCell,
+                            out BuildingPlacement neighbor) &&
+                        buildingInstances.TryGetValue(neighbor,
+                            out PlacedBuilding neighborInstance) &&
+                        neighborInstance.TryGetComponent(out Belt neighborBelt) &&
+                        (neighborBelt.OutputMask & BeltCell.Bit(direction)) != 0 &&
+                        (outgoing & BeltCell.Bit(
+                            (GridDirection)((index + 2) & 3))) == 0)
+                        incoming |= BeltCell.Bit((GridDirection)((index + 2) & 3));
+                }
+                placementPreview.SetBeltConnections(outgoing, incoming,
+                    gridSystem.CellSize);
+            }
+            else placementPreview.HideBeltConnections();
             placementPreview.SetReason(canPlace ? null :
                 GetPlacementFailureReason(selectedOption, anchorCell, previewRotation));
 
@@ -885,6 +928,7 @@ namespace CozyFoodFactory.Buildings
             {
                 selectedRotation = selectedRotation.RotateClockwise();
                 RememberRotation(GetSelectedOption(), selectedRotation);
+                beltRotationExplicit = true;
             }
         }
 
@@ -1015,7 +1059,8 @@ namespace CozyFoodFactory.Buildings
                     option,
                     placement.AnchorCell,
                     placement.Rotation,
-                    instance.GetComponent<FarmPlot>()?.SelectedCrop?.Id));
+                    instance.GetComponent<FarmPlot>()?.SelectedCrop?.Id,
+                    instance.GetComponent<Belt>()?.OutputMask ?? 0));
             }
 
             group = new BuildingGroupCopy(sourceItems, propertyItems);
@@ -1268,6 +1313,9 @@ namespace CozyFoodFactory.Buildings
                         break;
                     }
                     placedBuildings.Add(placed);
+                    if (item.OutputMask != 0 &&
+                        buildingInstances[placed].TryGetComponent(out Belt placedBelt))
+                        placedBelt.SetOutputs(item.OutputMask);
                     if (item.CropId == null) continue;
                     FarmPlot plot = buildingInstances[placed].GetComponent<FarmPlot>();
                     CropDefinition crop = plot.AvailableCrops.FirstOrDefault(candidate =>
@@ -1382,6 +1430,40 @@ namespace CozyFoodFactory.Buildings
                 if (!live.connections.Any(item => ConstructionLayout.Same(old, item)))
                     return HistoryRejected("A Property connection changed since this action.");
 
+            var beltEdits = expected.Buildings
+                .Where(old => old.definitionId == nameof(Belt))
+                .Select(old => (Old: old, New: desired.Buildings.FirstOrDefault(
+                    target => ConstructionLayout.BuildingKey(target) ==
+                        ConstructionLayout.BuildingKey(old) &&
+                        target.rotation == old.rotation)))
+                .Where(pair => pair.New != null &&
+                    pair.Old.belt?.outputMask != pair.New.belt?.outputMask)
+                .ToArray();
+            if (beltEdits.Length > 0)
+            {
+                var editedKeys = new HashSet<(string, int, int)>(
+                    beltEdits.Select(pair => ConstructionLayout.BuildingKey(pair.Old)));
+                expected = ConstructionLayout.FromWorld(new FactoryWorldData
+                {
+                    buildings = expected.Buildings.Where(item =>
+                        !editedKeys.Contains(ConstructionLayout.BuildingKey(item))).ToArray(),
+                    connections = expected.Connections
+                });
+                desired = ConstructionLayout.FromWorld(new FactoryWorldData
+                {
+                    buildings = desired.Buildings.Where(item =>
+                        !editedKeys.Contains(ConstructionLayout.BuildingKey(item))).ToArray(),
+                    connections = desired.Connections
+                });
+                foreach (SavedBuilding building in live.buildings)
+                {
+                    SavedBuilding edit = beltEdits.FirstOrDefault(pair =>
+                        ConstructionLayout.BuildingKey(pair.Old) ==
+                        ConstructionLayout.BuildingKey(building)).New;
+                    if (edit != null) building.belt.outputMask = edit.belt.outputMask;
+                }
+            }
+
             // Crop configuration changes keep their existing Farm Plot and do not touch time.
             if (expected.Buildings.Length == 1 && desired.Buildings.Length == 1 &&
                 expected.Connections.Length == 0 && desired.Connections.Length == 0 &&
@@ -1478,6 +1560,7 @@ namespace CozyFoodFactory.Buildings
                         propertySupply.TryRemoveConnection(cell);
                 }
                 finally { suppressConstructionHistory = false; }
+                ApplyBeltHistoryEdits(beltEdits);
                 return true;
             }
 
@@ -1490,7 +1573,8 @@ namespace CozyFoodFactory.Buildings
                     return HistoryRejected($"{target.definitionId} is locked or unavailable.");
                 items.Add(new BuildingGroupCopyItem(option,
                     new Vector2Int(target.x, target.y), target.rotation,
-                    cropId: target.farmPlot?.cropId));
+                    cropId: target.farmPlot?.cropId,
+                    outputMask: target.belt?.outputMask ?? 0));
             }
             var properties = desired.Connections.Select(item => new PropertyConnection(
                 new Vector2Int(item.x, item.y),
@@ -1528,6 +1612,7 @@ namespace CozyFoodFactory.Buildings
                     ExitGroupPasteMode();
                     return HistoryRejected("The construction area or connection changed.");
                 }
+                ApplyBeltHistoryEdits(beltEdits);
                 return true;
             }
             finally { suppressConstructionHistory = false; }
@@ -1842,10 +1927,17 @@ namespace CozyFoodFactory.Buildings
         {
             if (!Mouse.current.leftButton.isPressed)
             {
+                bool hadBeltPath = beltDragPlanner.HasPathRotation;
+                BuildingRotation finalRotation = hadBeltPath ||
+                    beltRotationExplicit ? selectedRotation :
+                    GetSmartSingleBeltRotation(beltDragPlanner.PendingCell,
+                        selectedRotation);
                 if (option.SupportsContinuousPlacement &&
-                    beltDragPlanner.TryComplete(selectedRotation, out BeltPlacementStep finalStep))
+                    beltDragPlanner.TryComplete(finalRotation, out BeltPlacementStep finalStep))
                 {
-                    TryPlaceBuilding(option, finalStep.Cell, finalStep.Rotation);
+                    TryPlaceBeltStep(option, finalStep,
+                        hadBeltPath || beltRotationExplicit);
+                    beltRotationExplicit = false;
                 }
 
                 RecordConstruction(placementHistoryStart);
@@ -1885,8 +1977,49 @@ namespace CozyFoodFactory.Buildings
             IReadOnlyList<Vector2Int> newCells = placementDrag.Continue(anchorCell);
             foreach (BeltPlacementStep step in beltDragPlanner.Continue(newCells))
             {
-                TryPlaceBuilding(option, step.Cell, step.Rotation);
+                TryPlaceBeltStep(option, step, true);
             }
+        }
+
+        private void ApplyBeltHistoryEdits(
+            (SavedBuilding Old, SavedBuilding New)[] edits)
+        {
+            foreach ((SavedBuilding old, SavedBuilding target) in edits)
+            {
+                KeyValuePair<BuildingPlacement, PlacedBuilding> entry =
+                    buildingInstances.First(item =>
+                        item.Key.DefinitionId == nameof(Belt) &&
+                        item.Key.AnchorCell == new Vector2Int(old.x, old.y));
+                entry.Value.GetComponent<Belt>().SetOutputs(target.belt.outputMask);
+            }
+        }
+
+        private bool CanExtendBelt(BuildingPlacementOption option,
+            Vector2Int cell)
+        {
+            if (option.Definition.Id != nameof(Belt) ||
+                (!beltDragPlanner.HasPathRotation && !beltRotationExplicit) ||
+                !occupancy.TryGetBuilding(cell, out BuildingPlacement existing) ||
+                existing.DefinitionId != nameof(Belt)) return false;
+            return buildingInstances.TryGetValue(existing,
+                out PlacedBuilding instance) && instance.GetComponent<Belt>() != null;
+        }
+
+        private void TryPlaceBeltStep(BuildingPlacementOption option,
+            BeltPlacementStep step, bool explicitDrag)
+        {
+            if (option.Definition.Id == nameof(Belt) && explicitDrag &&
+                occupancy.TryGetBuilding(step.Cell, out BuildingPlacement existing) &&
+                existing.DefinitionId == nameof(Belt) &&
+                buildingInstances.TryGetValue(existing, out PlacedBuilding instance) &&
+                instance.TryGetComponent(out Belt belt))
+            {
+                belt.SetOutputs(BeltConnectionPlanner.ExtendExisting(
+                    belt.OutputMask, existing.Rotation.ToGridDirection(),
+                    step.Rotation.ToGridDirection(), explicitDrag));
+                return;
+            }
+            TryPlaceBuilding(option, step.Cell, step.Rotation);
         }
 
         private void TryRemoveBuilding(Vector2Int cell)
@@ -1923,6 +2056,8 @@ namespace CozyFoodFactory.Buildings
                 feedbackViews.Remove(placement);
                 selection.Remove(placement);
                 RefreshSelectionHighlights();
+                if (instance.TryGetComponent(out Belt removedBelt))
+                    removedBelt.DetachForMove();
                 Destroy(instance.gameObject);
             }
         }
@@ -2194,9 +2329,32 @@ namespace CozyFoodFactory.Buildings
                 return pathRotation;
             }
 
-            return beltDragPlanner.IsActive
+            return beltDragPlanner.HasPathRotation
                 ? beltDragPlanner.GetPreviewRotation(selectedRotation)
-                : selectedRotation;
+                : beltRotationExplicit ? selectedRotation :
+                    GetSmartSingleBeltRotation(anchorCell, selectedRotation);
+        }
+
+        private BuildingRotation GetSmartSingleBeltRotation(Vector2Int? cell,
+            BuildingRotation fallback)
+        {
+            if (!cell.HasValue) return fallback;
+            int incomingMask = 0;
+            for (int index = 0; index < 4; index++)
+            {
+                GridDirection direction = (GridDirection)index;
+                if (!occupancy.TryGetBuilding(cell.Value - direction.ToOffset(),
+                        out BuildingPlacement neighbor) ||
+                    !buildingInstances.TryGetValue(neighbor,
+                        out PlacedBuilding instance) ||
+                    !instance.TryGetComponent(out Belt belt) ||
+                    (belt.OutputMask & BeltCell.Bit(direction)) == 0)
+                    continue;
+                incomingMask |= BeltCell.Bit(direction);
+            }
+            GridDirection chosen = BeltConnectionPlanner.PreferStraight(
+                incomingMask, fallback.ToGridDirection());
+            return (BuildingRotation)((int)chosen * 90);
         }
 
         private void SelectBuilding(int index)
@@ -2220,6 +2378,7 @@ namespace CozyFoodFactory.Buildings
                 ShowContextualGuidance(GetBuildingGuidance(buildingId));
 
             selectedBuildingIndex = index;
+            beltRotationExplicit = false;
             if (foodDemoControls)
             {
                 cropPickerPlot = null;
@@ -3185,9 +3344,16 @@ namespace CozyFoodFactory.Buildings
                         local, outward);
                     continue;
                 }
-                Vector2Int beltOutput = neighbor.Rotation.ToGridDirection().ToOffset();
+                int beltOutputs = buildingInstances.TryGetValue(neighbor,
+                    out PlacedBuilding beltInstance) &&
+                    beltInstance.TryGetComponent(out Belt connectedBelt)
+                    ? connectedBelt.OutputMask
+                    : BeltCell.Bit(neighbor.Rotation.ToGridDirection());
                 feedback[index] = port.Kind == BuildingPortKind.Input
-                    ? beltOutput == -outward : beltOutput != -outward;
+                    ? (beltOutputs & BeltCell.Bit(
+                        DirectionForOffset(-outward))) != 0
+                    : (beltOutputs & BeltCell.Bit(
+                        DirectionForOffset(-outward))) == 0;
             }
             return feedback;
         }
@@ -3229,7 +3395,15 @@ namespace CozyFoodFactory.Buildings
             if (!occupancy.TryGetBuilding(cell + forward,
                     out BuildingPlacement neighbor)) return null;
             if (neighbor.DefinitionId == nameof(Belt))
-                return neighbor.Rotation.ToGridDirection().ToOffset() != -forward;
+            {
+                int outputs = buildingInstances.TryGetValue(neighbor,
+                    out PlacedBuilding beltInstance) &&
+                    beltInstance.TryGetComponent(out Belt belt)
+                    ? belt.OutputMask
+                    : BeltCell.Bit(neighbor.Rotation.ToGridDirection());
+                return (outputs & BeltCell.Bit(
+                    DirectionForOffset(-forward))) == 0;
+            }
             if (!buildingInstances.TryGetValue(neighbor, out PlacedBuilding instance))
                 return false;
             BuildingPlacementOption target = buildingOptions.FirstOrDefault(candidate =>
@@ -3248,6 +3422,16 @@ namespace CozyFoodFactory.Buildings
                 if (outside == cell) return true;
             }
             return false;
+        }
+
+        private static GridDirection DirectionForOffset(Vector2Int offset)
+        {
+            for (int index = 0; index < 4; index++)
+            {
+                GridDirection direction = (GridDirection)index;
+                if (direction.ToOffset() == offset) return direction;
+            }
+            throw new ArgumentOutOfRangeException(nameof(offset));
         }
 
         private bool IsMachineLocked(BuildingPlacementOption option) =>
@@ -3396,18 +3580,21 @@ namespace CozyFoodFactory.Buildings
             BuildingPlacementOption option,
             Vector2Int cell,
             BuildingRotation rotation,
-            string cropId = null)
+            string cropId = null,
+            int outputMask = 0)
         {
             Option = option ?? throw new ArgumentNullException(nameof(option));
             Offset = cell;
             Rotation = rotation;
             CropId = cropId;
+            OutputMask = outputMask;
         }
 
         public BuildingPlacementOption Option { get; }
         public Vector2Int Offset { get; }
         public BuildingRotation Rotation { get; }
         public string CropId { get; }
+        public int OutputMask { get; }
     }
 
     public readonly struct PropertyGroupCopyItem
@@ -3460,7 +3647,8 @@ namespace CozyFoodFactory.Buildings
                     source.Option,
                     source.Offset - origin,
                     source.Rotation,
-                    source.CropId);
+                    source.CropId,
+                    source.OutputMask);
             }
             propertyItems = sourceConnections == null
                 ? Array.Empty<PropertyGroupCopyItem>()
@@ -3502,7 +3690,8 @@ namespace CozyFoodFactory.Buildings
                     item.Option,
                     rotatedOffset,
                     item.Rotation.RotateClockwise(),
-                    item.CropId);
+                    item.CropId,
+                    RotateBeltMask(item.OutputMask));
             }
             var rotatedProperties = propertyItems.Select(item =>
                 new PropertyGroupCopyItem(item.Connection,
@@ -3562,7 +3751,8 @@ namespace CozyFoodFactory.Buildings
                     item.Option,
                     mirroredOffset,
                     MirrorDirection(item.Rotation, horizontal),
-                    item.CropId);
+                    item.CropId,
+                    MirrorBeltMask(item.OutputMask, horizontal));
             }
             var mirroredProperties = propertyItems.Select(item =>
                 new PropertyGroupCopyItem(item.Connection,
@@ -3572,6 +3762,26 @@ namespace CozyFoodFactory.Buildings
                 .ToArray();
             mirrored = new BuildingGroupCopy(mirroredItems, mirroredProperties);
             return true;
+        }
+
+        private static int RotateBeltMask(int mask)
+        {
+            int rotated = 0;
+            for (int index = 0; index < 4; index++)
+                if ((mask & (1 << index)) != 0)
+                    rotated |= 1 << ((index + 1) & 3);
+            return rotated;
+        }
+
+        private static int MirrorBeltMask(int mask, bool horizontal)
+        {
+            int mirrored = 0;
+            for (int index = 0; index < 4; index++)
+                if ((mask & (1 << index)) != 0)
+                    mirrored |= 1 << (horizontal
+                        ? (index is 1 or 3 ? (index + 2) & 3 : index)
+                        : (index is 0 or 2 ? (index + 2) & 3 : index));
+            return mirrored;
         }
 
         private static bool CanMirrorPorts(
@@ -3766,6 +3976,10 @@ namespace CozyFoodFactory.Buildings
         private Vector2Int? pendingCell;
 
         public bool IsActive => pendingCell.HasValue;
+
+        public bool HasPathRotation => hasPathRotation;
+
+        public Vector2Int? PendingCell => pendingCell;
 
         public BuildingRotation LastPathRotation { get; private set; }
 

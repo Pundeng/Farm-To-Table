@@ -115,18 +115,45 @@ namespace CozyFoodFactory.Tests.EditMode
             Assert.That(system.AddBelt(Vector2Int.zero, GridDirection.North), Is.Not.Null);
         }
 
+        [Test]
+        public void TwoMachineOutputs_ArbitrateOneDestinationByDirection()
+        {
+            var system = new BeltTransportSystem(1f);
+            BeltCell belt = system.AddBelt(Vector2Int.zero, GridDirection.East);
+            var north = new FoodSource(
+                new FoodItemData("north", FoodItemKind.RawIngredient),
+                Vector2Int.zero, GridDirection.North);
+            var east = new FoodSource(
+                new FoodItemData("east", FoodItemKind.RawIngredient),
+                Vector2Int.zero, GridDirection.East);
+            system.RegisterOutputSource(east);
+            system.RegisterOutputSource(north);
+            system.Advance(0f);
+            Assert.That(((FoodItemData)belt.Item.Item).Id, Is.EqualTo("north"));
+            Assert.That(north.HasOutput, Is.False);
+            Assert.That(east.HasOutput, Is.True);
+            var receiver = new FoodReceiver(Vector2Int.right, GridDirection.East);
+            system.RegisterInputReceiver(receiver);
+            system.Advance(1f);
+            Assert.That(((FoodItemData)receiver.Received).Id, Is.EqualTo("north"));
+            Assert.That(((FoodItemData)belt.Item.Item).Id, Is.EqualTo("east"));
+            Assert.That(east.HasOutput, Is.False);
+        }
+
         private sealed class FoodSource : IItemOutputSource
         {
             private ITransportItem item;
 
-            public FoodSource(FoodItemData item, Vector2Int outputCell)
+            public FoodSource(FoodItemData item, Vector2Int outputCell,
+                GridDirection direction = GridDirection.East)
             {
                 this.item = item;
                 OutputCell = outputCell;
+                OutputDirection = direction;
             }
 
             public Vector2Int OutputCell { get; }
-            public GridDirection OutputDirection => GridDirection.East;
+            public GridDirection OutputDirection { get; }
             public bool HasOutput => item != null;
             public ITransportItem PeekOutput() => item;
 

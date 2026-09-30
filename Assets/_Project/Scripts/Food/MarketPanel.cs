@@ -90,8 +90,8 @@ namespace CozyFoodFactory.Food
             if (buildings != null && buildings.IsFoodDemo)
             {
                 var guidanceStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
-                GUILayout.Label(market.Unlocks.IsUnlocked("demo", "complete")
-                    ? "DEMO COMPLETE — your food factory is running!"
+                GUILayout.Label(market.Unlocks.IsUnlocked("chapter", "vegetable_complete")
+                    ? "CHAPTER 1 COMPLETE — Vegetable Automation!"
                     : GetDemoGuidance(), guidanceStyle);
             }
             GUILayout.Label($"Total delivered: {market.Inventory.TotalDelivered}");
@@ -264,7 +264,10 @@ namespace CozyFoodFactory.Food
         public string GetSaveSummary()
         {
             if (market == null || buildings == null) return "Save unavailable.";
-            if (!File.Exists(SavePath)) return "No saved game.";
+            if (!File.Exists(SavePath))
+                return File.Exists(ProgressionSaveService.LegacyDemoPath)
+                    ? "Chapter 1 starts a new save. The previous Demo save is preserved."
+                    : "No saved game.";
             DateTime writeUtc = File.GetLastWriteTimeUtc(SavePath);
             if (cachedSaveSummary != null && cachedSaveWriteUtc == writeUtc)
                 return cachedSaveSummary;
@@ -288,7 +291,10 @@ namespace CozyFoodFactory.Food
             if (!saves.TryReadValidated(SavePath,
                     out ProgressionSaveData data, out string error))
             {
-                saveMessage = $"Load failed: {error}";
+                saveMessage = !File.Exists(SavePath) &&
+                    File.Exists(ProgressionSaveService.LegacyDemoPath)
+                    ? "Chapter 1 starts a new save. The previous Demo save is preserved."
+                    : $"Load failed: {error}";
                 return false;
             }
             else if (data.version == 1)
@@ -566,7 +572,7 @@ namespace CozyFoodFactory.Food
                     $"{market.Currency} / {region.Price} currency");
                 if (!progression)
                     GUILayout.Label(region.Id == "East Field"
-                        ? "Complete the Vegetable Base order."
+                        ? "Complete the Tomato Sauce order."
                         : $"Unlock {region.RequiredUnlockId} first.");
                 if (!adjacent)
                     GUILayout.Label("Restore an adjacent region first.");
@@ -607,23 +613,29 @@ namespace CozyFoodFactory.Food
             string orderId = market.ActiveOrder?.Order.Id;
             return orderId switch
             {
-                "First Harvest" => "Start: place a Farm Plot on Starter Fields, " +
-                    "choose Apple, cover it with a Harvester, and belt apples to Market. " +
+                "O1" => "Start: place a Farm Plot on Starter Fields, " +
+                    "choose Carrot, cover it with a Harvester, and belt carrots to Market. " +
                     "Use the Hotbar or Build Menu, R to rotate, Esc to exit build mode.",
-                "Dried Apples" => "Build a Processor. In its default rotation, " +
-                    "belt apples in from the west and collect Air with a Collector " +
+                "O2" => "Build a Processor. In its default rotation, " +
+                    "belt carrots in from the west and collect Heat with a Collector " +
                     "and Pipe to the south property port. Belt its north output to Market.",
-                "Vegetable Base" => "Grow Tomato and Onion. Feed separate belts " +
+                "O3" => "Grow Tomato and Onion. Feed separate belts " +
                     "to the Mixer's two west inputs in default rotation, then belt " +
                     "its east output to Market.",
-                "Cut Potatoes" when market.Regions.GetStatus("East Field") !=
+                "O4" when market.Regions.GetStatus("East Field") !=
                     RegionStatus.Restored => "Select East Field on the map and purchase " +
                         "it to unlock Potato.",
-                "Cut Potatoes" => "Grow Potato in East Field. In default Cutter " +
+                "O4" => "Grow Potato in East Field. In default Cutter " +
                     "rotation, feed its rear from the south and connect a westbound " +
-                    "and eastbound belt to its front sides. One potato makes two cuts.",
-                "French Fries" => "Pipe Heat into a Processor and feed it Cut Potato. " +
-                    "Belt French Fries to Market to complete the demo.",
+                    "and eastbound belt to its front sides. One potato makes two slices.",
+                "O5" => "Pipe Heat into a Processor and feed it Potato Slice. " +
+                    "Belt French Fries to Market; the next order reuses Tomato Sauce.",
+                "O6" => "Feed Tomato Sauce into a Processor supplied with Water. " +
+                    "Belt Tomato Soup to Market.",
+                "O7" => "Feed French Fries and Tomato Sauce into a Mixer. " +
+                    "Keep Sauce available for Soup as well as Loaded Fries.",
+                "O8" => "Feed Loaded Fries and Tomato Soup into a Mixer. " +
+                    "Deliver Garden Lunch to complete Chapter 1.",
                 _ => "Build a food production line and deliver its output to Market."
             };
         }

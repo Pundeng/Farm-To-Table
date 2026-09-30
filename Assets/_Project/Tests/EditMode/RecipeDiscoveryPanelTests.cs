@@ -15,7 +15,7 @@ namespace CozyFoodFactory.Tests.EditMode
             var dried = new FoodItemData("Dried Apple", FoodItemKind.ProcessedFood);
             var cut = new FoodItemData("Cut Potato", FoodItemKind.ProcessedFood);
             var fries = new FoodItemData("French Fries", FoodItemKind.ProcessedFood);
-            var driedRecipe = new ProcessingRecipe(apple, CookingProperty.Air, dried);
+            var driedRecipe = new ProcessingRecipe(apple, CookingProperty.Cold, dried);
             var friesRecipe = new ProcessingRecipe(cut, CookingProperty.Heat, fries);
             var cutterRecipe = new CuttingRecipe(potato, cut);
             var order = new FoodOrder("fries", "French Fries",
@@ -43,7 +43,7 @@ namespace CozyFoodFactory.Tests.EditMode
             var apple = new FoodItemData("Apple", FoodItemKind.RawIngredient);
             var dried = new FoodItemData("Dried Apple", FoodItemKind.ProcessedFood);
             var baked = new FoodItemData("Baked Apple", FoodItemKind.ProcessedFood);
-            registry.Record(new ProcessingRecipe(apple, CookingProperty.Air, dried));
+            registry.Record(new ProcessingRecipe(apple, CookingProperty.Cold, dried));
             registry.Record(new ProcessingRecipe(apple, CookingProperty.Heat, baked));
             Assert.That(registry.MarkViewed(registry.DiscoveredRecipes[0]), Is.True);
             Assert.That(registry.IsNew(registry.DiscoveredRecipes[0]), Is.False);
@@ -58,17 +58,17 @@ namespace CozyFoodFactory.Tests.EditMode
             registry.Discovered += popups.Show;
             var apple = new FoodItemData("apple", FoodItemKind.RawIngredient);
             var driedApple = new FoodItemData("Dried Apple", FoodItemKind.ProcessedFood);
-            var recipe = new ProcessingRecipe(apple, CookingProperty.Air, driedApple);
+            var recipe = new ProcessingRecipe(apple, CookingProperty.Cold, driedApple);
 
             Assert.That(registry.Record(recipe), Is.True);
             Assert.That(popups.Current.Output, Is.EqualTo(driedApple));
             Assert.That(RecipeDiscoveryPanel.FormatRequirements(popups.Current),
-                Is.EqualTo("Ingredient: apple; Property: Air"));
+                Is.EqualTo("Ingredient: apple; Property: Cold"));
             Assert.That(registry.DiscoveredRecipes.Count, Is.EqualTo(1));
 
             popups.Dismiss();
             Assert.That(registry.Record(new ProcessingRecipe(apple,
-                CookingProperty.Air, driedApple)), Is.False);
+                CookingProperty.Cold, driedApple)), Is.False);
             Assert.That(popups.Current, Is.Null);
             Assert.That(registry.DiscoveredRecipes.Count, Is.EqualTo(1));
 
@@ -94,7 +94,7 @@ namespace CozyFoodFactory.Tests.EditMode
             var first = new FoodItemData("Dried Apple", FoodItemKind.ProcessedFood);
             var second = new FoodItemData("Baked Apple", FoodItemKind.ProcessedFood);
 
-            registry.Record(new ProcessingRecipe(apple, CookingProperty.Air, first));
+            registry.Record(new ProcessingRecipe(apple, CookingProperty.Cold, first));
             registry.Record(new ProcessingRecipe(apple, CookingProperty.Heat, second));
             Assert.That(popups.Current.Output, Is.EqualTo(first));
             popups.Dismiss();

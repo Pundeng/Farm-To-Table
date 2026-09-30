@@ -10,8 +10,8 @@ namespace CozyFoodFactory.Food
         public event Action<FarmPlot> CropChanged;
         [SerializeField] private CropDefinition[] availableCrops =
         {
-            new CropDefinition("Apple",
-                new FoodItemData("apple", FoodItemKind.RawIngredient), 2f)
+            new CropDefinition("Carrot",
+                new FoodItemData("carrot", FoodItemKind.RawIngredient), 2f)
         };
         [SerializeField, Min(1)] private int matureCapacity = 4;
 

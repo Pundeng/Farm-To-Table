@@ -3,17 +3,98 @@ using UnityEngine;
 
 namespace CozyFoodFactory.Logistics
 {
+    public static class BeltConnectionPlanner
+    {
+        public static GridDirection PreferStraight(int incomingMask,
+            GridDirection fallback)
+        {
+            GridDirection? only = null;
+            for (int index = 0; index < 4; index++)
+            {
+                GridDirection direction = (GridDirection)index;
+                if ((incomingMask & BeltCell.Bit(direction)) == 0) continue;
+                if (only.HasValue) return fallback;
+                only = direction;
+            }
+            return only ?? fallback;
+        }
+
+        public static int ExtendExisting(int currentMask,
+            GridDirection primaryDirection, GridDirection requestedDirection,
+            bool explicitDrag)
+        {
+            int primary = BeltCell.Bit(primaryDirection);
+            if ((currentMask & primary) == 0)
+                throw new ArgumentException("Existing Belt must retain its primary output.");
+            return explicitDrag
+                ? currentMask | BeltCell.Bit(requestedDirection)
+                : currentMask;
+        }
+    }
+
     public sealed class BeltCell
     {
+        // Bit positions follow GridDirection (North, East, South, West).
+        public const int AllDirections = 15;
+
+        public static int Bit(GridDirection direction) => 1 << (int)direction;
+
         public BeltCell(Vector2Int cell, GridDirection direction)
         {
             Cell = cell;
             Direction = direction;
+            OutputMask = Bit(direction);
         }
 
         public Vector2Int Cell { get; }
 
         public GridDirection Direction { get; }
+
+        public int OutputMask { get; private set; }
+
+        public int NextOutputIndex { get; private set; }
+
+        public int NextInputIndex { get; private set; }
+
+        public bool HasOutput(GridDirection direction) =>
+            (OutputMask & Bit(direction)) != 0;
+
+        public GridDirection PreferredOutput
+        {
+            get
+            {
+                for (int offset = 0; offset < 4; offset++)
+                {
+                    GridDirection direction = (GridDirection)
+                        ((NextOutputIndex + offset) & 3);
+                    if (HasOutput(direction)) return direction;
+                }
+                return Direction;
+            }
+        }
+
+        public void SetOutputs(int mask, int nextOutputIndex = 0)
+        {
+            if (mask < 0 || mask > AllDirections ||
+                (mask & Bit(Direction)) == 0 || nextOutputIndex < 0 ||
+                nextOutputIndex > 3)
+                throw new ArgumentOutOfRangeException(nameof(mask));
+            OutputMask = mask;
+            NextOutputIndex = nextOutputIndex;
+        }
+
+        internal void AdvanceOutputCursor(GridDirection usedDirection) =>
+            NextOutputIndex = ((int)usedDirection + 1) & 3;
+
+        internal void AdvanceInputCursor(GridDirection usedDirection) =>
+            NextInputIndex = ((int)usedDirection + 1) & 3;
+
+        public void RestoreInputCursor(int index)
+        {
+            if (index < 0 || index > 3)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            NextInputIndex = index;
+        }
 
         public Vector2Int OutputCell => Cell + Direction.ToOffset();
 

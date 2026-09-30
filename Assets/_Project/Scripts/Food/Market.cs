@@ -12,6 +12,9 @@ namespace CozyFoodFactory.Food
         [SerializeField] private Sprite visualSprite;
         [SerializeField] private Vector2Int inputCell = new(10, 4);
         [SerializeField] private string lastDeliveryDebug = string.Empty;
+        [Header("Main Campaign Objectives (in sequence order)")]
+        [InspectorName("Main Campaign Objectives")]
+        [Tooltip("Edit each objective's ID, required Food and Quantity, and Unlocks here. Reorder the array to change the campaign sequence. Keep existing IDs and completed objectives in place for save compatibility.")]
         [SerializeField] private FoodOrder[] orders = Array.Empty<FoodOrder>();
         [SerializeField] private SeedShopOffer[] seedOffers = Array.Empty<SeedShopOffer>();
         [SerializeField] private FarmableRegion[] farmableRegions =
@@ -32,6 +35,8 @@ namespace CozyFoodFactory.Food
         public long Currency => Inventory?.Currency ?? 0;
 
         public IReadOnlyList<FoodOrder> Orders => orderSequence?.Orders ?? orders;
+        public string CampaignObjectiveError =>
+            CampaignObjectiveValidation.GetError(orders);
         public IReadOnlyList<FoodOrder> CompletedOrders =>
             orderSequence?.CompletedOrders ?? Array.Empty<FoodOrder>();
         public FoodOrderProgress ActiveOrder => orderSequence?.ActiveOrder;

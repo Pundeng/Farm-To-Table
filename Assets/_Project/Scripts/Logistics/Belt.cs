@@ -18,12 +18,13 @@ namespace CozyFoodFactory.Logistics
         private BeltCell cell;
         private GameObject itemVisual;
         private TextMesh itemLabel;
+        private readonly GameObject[] connectionArms = new GameObject[4];
         private WorldInformationLevel informationLevel;
         private bool forceItemDetail;
 
         public static float ItemVisualScale(WorldInformationLevel level, bool forceDetail) =>
-            forceDetail || level == WorldInformationLevel.Close ? 0.32f :
-            level == WorldInformationLevel.Medium ? 0.24f : 0.12f;
+            forceDetail || level == WorldInformationLevel.Close ? 0.75f :
+            level == WorldInformationLevel.Medium ? 0.50f : 0.12f;
 
         public static bool ShowItemIdentity(WorldInformationLevel level, bool forceDetail) =>
             forceDetail || level == WorldInformationLevel.Close;
@@ -39,14 +40,40 @@ namespace CozyFoodFactory.Logistics
                 RefreshItemAppearance();
             }
             if (itemLabel != null)
-                itemLabel.gameObject.SetActive(hasItem &&
-                    ShowItemIdentity(level, forceDetail));
+                itemLabel.gameObject.SetActive(false);
+                // itemLabel.gameObject.SetActive(hasItem &&
+                //     ShowItemIdentity(level, forceDetail));
         }
 
         // Rebuilding intentionally discards any item currently carried by this Belt.
         public bool CanRemove => true;
 
         public bool CanMove => cell != null && !cell.HasItem;
+
+        public int OutputMask => cell?.OutputMask ?? BeltCell.Bit(direction);
+
+        public void SetOutputs(int outputMask)
+        {
+            if (cell.OutputMask == outputMask) return;
+            cell.SetOutputs(outputMask, cell.NextOutputIndex);
+            coordinator.RefreshConnections();
+        }
+
+        public void RefreshConnections(int incomingMask)
+        {
+            int visible = incomingMask | OutputMask;
+            for (int index = 0; index < 4; index++)
+            {
+                int bit = 1 << index;
+                if (connectionArms[index] == null)
+                    connectionArms[index] = CreateConnectionArm((GridDirection)index);
+                connectionArms[index].SetActive((visible & bit) != 0);
+                connectionArms[index].GetComponent<SpriteRenderer>().color =
+                    (OutputMask & bit) != 0
+                        ? new Color(1f, 0.77f, 0.31f, 0.9f)
+                        : new Color(0.74f, 0.83f, 0.84f, 0.8f);
+            }
+        }
 
         public SavedBelt CaptureWorldState()
         {
@@ -60,12 +87,19 @@ namespace CozyFoodFactory.Logistics
             {
                 item = SavedFood.FromTransport(carried?.Item),
                 entryDirection = carried?.EntryDirection ?? default,
-                progress = carried?.Progress ?? 0f
+                progress = carried?.Progress ?? 0f,
+                outputMask = cell.OutputMask,
+                nextOutputIndex = cell.NextOutputIndex,
+                nextInputIndex = cell.NextInputIndex
             };
         }
 
         public void RestoreWorldState(SavedBelt saved)
         {
+            cell.SetOutputs(saved.outputMask == 0
+                ? BeltCell.Bit(direction) : saved.outputMask, saved.nextOutputIndex);
+            cell.RestoreInputCursor(saved.nextInputIndex);
+            coordinator.RefreshConnections();
             if (saved.item != null)
             {
                 cell.RestoreItem(saved.item.ToFood(), saved.entryDirection,
@@ -88,6 +122,7 @@ namespace CozyFoodFactory.Logistics
             cell = coordinator.RegisterBelt(this, gridCell, beltDirection);
             CreateDirectionArrow();
             CreateItemVisual();
+            coordinator.RefreshConnections();
         }
 
         public void RefreshItemVisual(GridSystem gridSystem, BeltCell beltCell)
@@ -97,8 +132,9 @@ namespace CozyFoodFactory.Logistics
             runeDebug = beltCell.Item?.Item?.ToString() ?? string.Empty;
 
             itemVisual.SetActive(hasItem);
-            itemLabel.gameObject.SetActive(hasItem &&
-                ShowItemIdentity(informationLevel, forceItemDetail));
+            itemLabel.gameObject.SetActive(false);
+            // itemLabel.gameObject.SetActive(hasItem &&
+            //     ShowItemIdentity(informationLevel, forceItemDetail));
 
             if (!hasItem)
             {
@@ -117,7 +153,7 @@ namespace CozyFoodFactory.Logistics
             RefreshItemAppearance();
 
             Vector2 startOffset = -(Vector2)beltCell.Item.EntryDirection.ToOffset() * 0.5f;
-            Vector2 endOffset = (Vector2)beltCell.Direction.ToOffset() * 0.5f;
+            Vector2 endOffset = (Vector2)beltCell.PreferredOutput.ToOffset() * 0.5f;
             Vector2 localOffset = itemProgress < 0.5f
                 ? Vector2.Lerp(startOffset, Vector2.zero, itemProgress * 2f)
                 : Vector2.Lerp(Vector2.zero, endOffset, (itemProgress - 0.5f) * 2f);
@@ -155,6 +191,23 @@ namespace CozyFoodFactory.Logistics
             CreateArrowPart("Arrow Shaft", new Vector2(0f, -0.02f), new Vector2(0.1f, 0.5f), 0f);
             CreateArrowPart("Arrow Left", new Vector2(-0.1f, 0.18f), new Vector2(0.1f, 0.3f), -45f);
             CreateArrowPart("Arrow Right", new Vector2(0.1f, 0.18f), new Vector2(0.1f, 0.3f), 45f);
+        }
+
+        private GameObject CreateConnectionArm(GridDirection side)
+        {
+            var arm = new GameObject($"Belt connection {side}");
+            arm.transform.SetParent(transform, false);
+            Vector2 offset = (Vector2)side.ToOffset();
+            arm.transform.position = transform.position +
+                new Vector3(offset.x * 0.26f, offset.y * 0.26f, -0.015f);
+            arm.transform.rotation = Quaternion.identity;
+            arm.transform.localScale = side is GridDirection.North or GridDirection.South
+                ? new Vector3(0.15f, 0.47f, 1f)
+                : new Vector3(0.47f, 0.15f, 1f);
+            SpriteRenderer renderer = arm.AddComponent<SpriteRenderer>();
+            renderer.sprite = GetPlaceholderSprite();
+            renderer.sortingOrder = 14;
+            return arm;
         }
 
         private void CreateArrowPart(string partName, Vector2 position, Vector2 scale, float angle)

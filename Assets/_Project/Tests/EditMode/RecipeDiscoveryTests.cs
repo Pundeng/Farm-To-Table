@@ -20,13 +20,13 @@ namespace CozyFoodFactory.Tests.EditMode
         public void Processor_DiscoversOnCompletionOnceAcrossRepeatedProduction()
         {
             var registry = new RecipeDiscoveryRegistry();
-            var recipe = new ProcessingRecipe(Apple, CookingProperty.Air, DriedApple);
+            var recipe = new ProcessingRecipe(Apple, CookingProperty.Cold, DriedApple);
             var process = new ProcessorProcess(
                 new ProcessingRecipeCatalog(new[] { recipe }), 1f, registry);
             int notifications = 0;
             registry.Discovered += _ => notifications++;
 
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, true), Is.True);
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, true), Is.True);
             Assert.That(registry.DiscoveredRecipes, Is.Empty);
             Assert.That(process.Advance(1f, false), Is.False);
             Assert.That(registry.DiscoveredRecipes, Is.Empty);
@@ -38,11 +38,11 @@ namespace CozyFoodFactory.Tests.EditMode
             Assert.That(discovery.Kind, Is.EqualTo(DiscoveredRecipeKind.Processing));
             Assert.That(discovery.IngredientA, Is.EqualTo(Apple));
             Assert.That(discovery.IngredientB, Is.Null);
-            Assert.That(discovery.Property, Is.EqualTo(CookingProperty.Air));
+            Assert.That(discovery.Property, Is.EqualTo(CookingProperty.Cold));
             Assert.That(discovery.Output, Is.EqualTo(DriedApple));
 
             Assert.That(process.TryTakeOutput(out _), Is.True);
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, true), Is.True);
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, true), Is.True);
             Assert.That(process.Advance(1f, true), Is.True);
             Assert.That(registry.DiscoveredRecipes.Count, Is.EqualTo(1));
             Assert.That(notifications, Is.EqualTo(1));
@@ -84,7 +84,7 @@ namespace CozyFoodFactory.Tests.EditMode
             var processing = new ProcessorProcess(
                 new ProcessingRecipeCatalog(new[]
                 {
-                    new ProcessingRecipe(Apple, CookingProperty.Air, DriedApple)
+                    new ProcessingRecipe(Apple, CookingProperty.Cold, DriedApple)
                 }), 1f, registry);
             var mixing = new BasicMixerProcess(
                 new MixingRecipeCatalog(new[]
@@ -92,7 +92,7 @@ namespace CozyFoodFactory.Tests.EditMode
                     new MixingRecipe(Tomato, Onion, VegetableBase)
                 }), registry);
 
-            Assert.That(processing.TryAccept(Apple, CookingProperty.Air, true), Is.True);
+            Assert.That(processing.TryAccept(Apple, CookingProperty.Cold, true), Is.True);
             Assert.That(processing.Advance(1f, true), Is.True);
             Assert.That(mixing.TryAccept(0, Tomato), Is.True);
             Assert.That(mixing.TryAccept(1, Onion), Is.True);
@@ -117,7 +117,7 @@ namespace CozyFoodFactory.Tests.EditMode
         public void InvalidOrAmbiguousInputs_DoNotCreateDiscoveries()
         {
             var registry = new RecipeDiscoveryRegistry();
-            var processingRecipe = new ProcessingRecipe(Apple, CookingProperty.Air, DriedApple);
+            var processingRecipe = new ProcessingRecipe(Apple, CookingProperty.Cold, DriedApple);
             var processor = new ProcessorProcess(new ProcessingRecipeCatalog(new[]
             {
                 processingRecipe, processingRecipe
@@ -128,7 +128,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 mixingRecipe, mixingRecipe
             }), registry);
 
-            Assert.That(processor.TryAccept(Apple, CookingProperty.Air, true), Is.False);
+            Assert.That(processor.TryAccept(Apple, CookingProperty.Cold, true), Is.False);
             Assert.That(processor.Advance(1f, true), Is.False);
             Assert.That(mixer.TryAccept(0, Tomato), Is.True);
             Assert.That(mixer.TryAccept(1, Onion), Is.False);

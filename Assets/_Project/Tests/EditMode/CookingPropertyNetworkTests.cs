@@ -7,9 +7,9 @@ namespace CozyFoodFactory.Tests.EditMode
     public sealed class CookingPropertyNetworkTests
     {
         [TestCase(CookingProperty.Heat)]
-        [TestCase(CookingProperty.Moisture)]
+        [TestCase(CookingProperty.Water)]
         [TestCase(CookingProperty.Time)]
-        [TestCase(CookingProperty.Air)]
+        [TestCase(CookingProperty.Cold)]
         public void EachProperty_ConnectsThroughCollectorAndPipe(CookingProperty property)
         {
             var network = new CookingPropertyNetwork();
@@ -65,8 +65,8 @@ namespace CozyFoodFactory.Tests.EditMode
         {
             var network = new CookingPropertyNetwork();
             var otherSource = new Vector2Int(5, 0);
-            Assert.That(network.TryAddSource(Vector2Int.zero, CookingProperty.Air, 1), Is.True);
-            Assert.That(network.TryAddSource(otherSource, CookingProperty.Air, 3), Is.True);
+            Assert.That(network.TryAddSource(Vector2Int.zero, CookingProperty.Cold, 1), Is.True);
+            Assert.That(network.TryAddSource(otherSource, CookingProperty.Cold, 3), Is.True);
             Assert.That(network.TryAddCollector(Vector2Int.right, Vector2Int.zero), Is.True);
             Assert.That(network.TryAddCollector(new Vector2Int(4, 0), otherSource), Is.True);
             Assert.That(network.TryAddPipe(new Vector2Int(2, 0)), Is.True);
@@ -101,7 +101,7 @@ namespace CozyFoodFactory.Tests.EditMode
         public void CapacityCountsDemandUnitsRatherThanConnectionCount()
         {
             var network = new CookingPropertyNetwork();
-            Assert.That(network.TryAddSource(Vector2Int.zero, CookingProperty.Moisture, 3), Is.True);
+            Assert.That(network.TryAddSource(Vector2Int.zero, CookingProperty.Water, 3), Is.True);
             Assert.That(network.TryAddCollector(Vector2Int.right, Vector2Int.zero), Is.True);
             Assert.That(network.TryAddDemand(new Vector2Int(2, 0), 2), Is.True);
             Assert.That(network.TryGetStatus(Vector2Int.zero,

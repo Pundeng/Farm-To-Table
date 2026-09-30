@@ -58,6 +58,12 @@ MonoBehaviour:
   m_Name:
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.FarmPlot
   availableCrops:
+  - id: Carrot
+    output:
+      id: carrot
+      kind: 0
+      sellValue: 1
+    productionDuration: 2
   - id: Apple
     output:
       id: apple
@@ -78,13 +84,6 @@ MonoBehaviour:
       sellValue: 1
     productionDuration: 2
     requiredUnlockId: Onion
-  - id: Basil
-    output:
-      id: basil
-      kind: 0
-      sellValue: 1
-    productionDuration: 2
-    requiredUnlockId: Basil
   - id: Potato
     output:
       id: potato

@@ -292,7 +292,6 @@ namespace CozyFoodFactory.UI
                 {
                     GUILayout.Label($"{crop.Id} (locked: " +
                         (crop.Id == "Potato" ? "restore East Field" :
-                         crop.Id == "Basil" ? "buy Basil Seeds" :
                          "complete the Market order") + ")");
                 }
                 else if (GUILayout.Button($"Grow {crop.Id}"))

@@ -47,6 +47,7 @@ namespace CozyFoodFactory.Food
         private GameObject pipePreview;
         private string pipePreviewReason;
         private readonly bool debugTools;
+        private readonly Func<CookingProperty, bool> sourceAvailable;
         private Tool tool;
         private bool isVisible;
         private int selectedSourceIndex;
@@ -58,9 +59,11 @@ namespace CozyFoodFactory.Food
         public PropertySupplyPlayMode(GridSystem grid, GridHoverHighlight hover,
             GridOccupancy occupancy, Transform parent,
             IReadOnlyList<PropertySourceSetup> setups, bool debugTools = true,
-            PropertyVisualDefinition visualDefinition = null)
+            PropertyVisualDefinition visualDefinition = null,
+            Func<CookingProperty, bool> sourceAvailable = null)
         {
             this.debugTools = debugTools;
+            this.sourceAvailable = sourceAvailable;
             this.grid = grid;
             this.hover = hover;
             this.occupancy = occupancy;
@@ -180,12 +183,13 @@ namespace CozyFoodFactory.Food
             for (int index = 0; index < cells.Count; index++)
                 valid[index] = occupancy.CanPlace(cells[index], Vector2Int.one,
                         BuildingRotation.Degrees0) &&
-                        sources.Count > 0 && preview.TryAddPipe(cells[index], sources[selectedSourceIndex]);
+                        HasAvailableSelectedSource() &&
+                        preview.TryAddPipe(cells[index], sources[selectedSourceIndex]);
             return valid;
         }
 
         private bool TryPlacePipe(Vector2Int cell, Vector2Int sourceCell) =>
-            TryPlaceConnection(cell, "Pipe",
+            IsSourceAvailable(sourceCell) && TryPlaceConnection(cell, "Pipe",
                 () => network.TryAddPipe(cell, sourceCell));
 
         public bool HasPipeAt(Vector2Int cell) =>
@@ -387,9 +391,11 @@ namespace CozyFoodFactory.Food
         }
 
         public bool TryPlaceCollector(Vector2Int cell, Vector2Int sourceCell) =>
+            IsSourceAvailable(sourceCell) &&
             TryPlaceConnection(cell, "Collector", () => network.TryAddCollector(cell, sourceCell));
 
         public bool TryPlacePipe(Vector2Int cell) =>
+            CanUsePipeSource(cell) &&
             TryPlaceConnection(cell, "Pipe", () => network.TryAddPipe(cell));
 
         public bool TryRemoveConnection(Vector2Int cell)
@@ -453,7 +459,7 @@ namespace CozyFoodFactory.Food
 
             bool added = tool switch
             {
-                Tool.Collector => sources.Count > 0 &&
+                Tool.Collector => HasAvailableSelectedSource() &&
                     TryPlaceCollector(cell, sources[selectedSourceIndex]),
                 Tool.Pipe => TryPlacePipe(cell),
                 Tool.TestDemand => TryPlaceConnection(cell, "Test load",
@@ -479,7 +485,8 @@ namespace CozyFoodFactory.Food
                     try
                     {
                         for (int index = 0; index < pipePath.Count; index++)
-                            if (valid[index]) TryPlacePipe(pipePath[index], sources[selectedSourceIndex]);
+                            if (valid[index] && HasAvailableSelectedSource())
+                                TryPlacePipe(pipePath[index], sources[selectedSourceIndex]);
                     }
                     finally
                     {
@@ -585,7 +592,7 @@ namespace CozyFoodFactory.Food
                 "Property connections");
             GUILayout.Label(debugTools ? $"Tool: {tool}  |  Hover: {hover.HoveredCell}" :
                 $"Tool: {tool}");
-            if (sources.Count > 0)
+            if (HasAvailableSelectedSource())
             {
                 Vector2Int selected = sources[selectedSourceIndex];
                 PropertyConnection source = GetConnection(selected);
@@ -593,9 +600,13 @@ namespace CozyFoodFactory.Food
                         ? $"Collector source: {source.Property} {selected}"
                         : $"Collector source: {source.Property}"))
                 {
-                    selectedSourceIndex = (selectedSourceIndex + 1) % sources.Count;
+                    do { selectedSourceIndex = (selectedSourceIndex + 1) % sources.Count; }
+                    while (!IsSourceAvailable(sources[selectedSourceIndex]));
                 }
             }
+            else GUILayout.Label("Complete the Carrot order to use Heat.");
+            if (!debugTools)
+                GUILayout.Label("Water follows French Fries; Time and Cold are for later chapters.");
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Collector")) SelectTool(Tool.Collector);
@@ -661,6 +672,32 @@ namespace CozyFoodFactory.Food
             {
                 network.TryAddDemand(port.Key, 1, port.Value);
             }
+        }
+
+        private bool IsSourceAvailable(Vector2Int cell) =>
+            network.TryGetConnection(cell, out PropertyConnection connection) &&
+            connection.Kind == PropertyConnectionKind.Source &&
+            (sourceAvailable?.Invoke(connection.Property) ?? true);
+
+        private bool CanUsePipeSource(Vector2Int cell)
+        {
+            CookingPropertyNetwork preview = network.CopyForPreview();
+            return preview.TryAddPipe(cell) &&
+                preview.TryGetConnection(cell, out PropertyConnection connection) &&
+                IsSourceAvailable(connection.SourceCell);
+        }
+
+        private bool HasAvailableSelectedSource()
+        {
+            if (sources.Count == 0) return false;
+            if (IsSourceAvailable(sources[selectedSourceIndex])) return true;
+            for (int index = 0; index < sources.Count; index++)
+                if (IsSourceAvailable(sources[index]))
+                {
+                    selectedSourceIndex = index;
+                    return true;
+                }
+            return false;
         }
 
         private bool Reserve(Vector2Int cell, string id,
@@ -793,9 +830,9 @@ namespace CozyFoodFactory.Food
             return property switch
             {
                 CookingProperty.Heat => new Color(1f, 0.42f, 0.2f),
-                CookingProperty.Moisture => new Color(0.2f, 0.65f, 1f),
+                CookingProperty.Water => new Color(0.2f, 0.65f, 1f),
                 CookingProperty.Time => new Color(0.75f, 0.65f, 0.4f),
-                CookingProperty.Air => new Color(0.7f, 0.9f, 0.95f),
+                CookingProperty.Cold => new Color(0.7f, 0.9f, 0.95f),
                 _ => Color.white
             };
         }
