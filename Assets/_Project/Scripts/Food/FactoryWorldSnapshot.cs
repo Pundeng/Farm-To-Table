@@ -72,6 +72,7 @@ namespace CozyFoodFactory.Food
         public SavedProcessor processor;
         public SavedMixer mixer;
         public SavedCutter cutter;
+        public SavedTradeBuilding tradeBuilding;
     }
 
     [Serializable]
@@ -163,7 +164,10 @@ namespace CozyFoodFactory.Food
                     (building.definitionId == nameof(Processor) || IsEmpty(building.processor)) &&
                     (building.definitionId == nameof(BasicMixer) || IsEmpty(building.mixer)) &&
                     (building.definitionId == nameof(Cutter) ||
-                        building.cutter == null || IsEmpty(building.cutter));
+                        building.cutter == null || IsEmpty(building.cutter)) &&
+                    (building.definitionId == nameof(TradeBuilding) || building.tradeBuilding == null ||
+                        string.IsNullOrEmpty(building.tradeBuilding.tradeId) &&
+                        building.tradeBuilding.bufferedInput == 0 && building.tradeBuilding.pendingOutput == 0);
                 if (!placeholdersMatch)
                 {
                     continue;
@@ -175,6 +179,7 @@ namespace CozyFoodFactory.Food
                 if (building.definitionId != nameof(Processor)) building.processor = null;
                 if (building.definitionId != nameof(BasicMixer)) building.mixer = null;
                 if (building.definitionId != nameof(Cutter)) building.cutter = null;
+                if (building.definitionId != nameof(TradeBuilding)) building.tradeBuilding = null;
 
                 if (building.belt != null && IsEmpty(building.belt.item))
                     building.belt.item = null;
@@ -253,14 +258,16 @@ namespace CozyFoodFactory.Food
                     (building.belt != null ? 1 : 0) +
                     (building.processor != null ? 1 : 0) +
                     (building.mixer != null ? 1 : 0) +
-                    (building.cutter != null ? 1 : 0);
+                    (building.cutter != null ? 1 : 0) +
+                    (building.tradeBuilding != null ? 1 : 0);
                 if (stateCount != 1 ||
                     building.definitionId != nameof(FarmPlot) && building.farmPlot != null ||
                     building.definitionId != nameof(Harvester) && building.harvester != null ||
                     building.definitionId != nameof(Belt) && building.belt != null ||
                     building.definitionId != nameof(Processor) && building.processor != null ||
                     building.definitionId != nameof(BasicMixer) && building.mixer != null ||
-                    building.definitionId != nameof(Cutter) && building.cutter != null)
+                    building.definitionId != nameof(Cutter) && building.cutter != null ||
+                    building.definitionId != nameof(TradeBuilding) && building.tradeBuilding != null)
                 {
                     string states = string.Join(", ", new[]
                     {
@@ -302,9 +309,11 @@ namespace CozyFoodFactory.Food
             IReadOnlyList<ProcessingRecipe> processingRecipes,
             IReadOnlyList<MixingRecipe> mixingRecipes,
             Vector2Int marketCell,
-            IReadOnlyList<CuttingRecipe> cuttingRecipes = null)
+            IReadOnlyList<CuttingRecipe> cuttingRecipes = null,
+            IReadOnlyList<TradeRecipe> tradeRecipes = null)
         {
             cuttingRecipes ??= Array.Empty<CuttingRecipe>();
+            tradeRecipes ??= Array.Empty<TradeRecipe>();
             Validate(world);
             if (options == null || sources == null || regions == null ||
                 savedUnlocks == null || processingRecipes == null ||
@@ -441,6 +450,9 @@ namespace CozyFoodFactory.Food
                     }
                 }
 
+                if (saved.tradeBuilding != null)
+                    new TradeProcess(tradeRecipes).Restore(saved.tradeBuilding);
+
                 if (saved.cutter != null && saved.cutter.state != CutterState.Idle &&
                     !cuttingRecipes.Any(recipe =>
                         Matches(recipe.Input, saved.cutter.input) &&
@@ -572,6 +584,12 @@ namespace CozyFoodFactory.Food
             mixer?.slotB?.Validate();
             mixer?.output?.Validate();
 
+            if (building.tradeBuilding != null &&
+                (building.tradeBuilding.bufferedInput < 0 || building.tradeBuilding.pendingOutput < 0 ||
+                 building.tradeBuilding.bufferedInput > 0 && building.tradeBuilding.pendingOutput > 0 ||
+                 string.IsNullOrEmpty(building.tradeBuilding.tradeId) &&
+                 (building.tradeBuilding.bufferedInput != 0 || building.tradeBuilding.pendingOutput != 0)))
+                throw new ArgumentException("Invalid Trade Building state.");
             SavedCutter cutter = building.cutter;
             if (cutter != null && (!Enum.IsDefined(typeof(CutterState), cutter.state) ||
                 !IsFiniteNonnegative(cutter.elapsedSeconds) ||

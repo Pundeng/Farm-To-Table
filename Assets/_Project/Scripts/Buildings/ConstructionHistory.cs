@@ -35,6 +35,9 @@ namespace CozyFoodFactory.Buildings
                 case nameof(Belt): result.belt = new SavedBelt(); break;
                 case nameof(Processor): result.processor = new SavedProcessor(); break;
                 case nameof(BasicMixer): result.mixer = new SavedMixer(); break;
+                case nameof(TradeBuilding):
+                    result.tradeBuilding = new SavedTradeBuilding { tradeId = source.tradeBuilding?.tradeId };
+                    break;
                 case nameof(Cutter): result.cutter = new SavedCutter(); break;
                 default: throw new ArgumentException("Unsupported construction type.");
             }

@@ -722,6 +722,31 @@ MonoBehaviour:
       id: French Fries
       kind: 1
       sellValue: 3
+  tradeRecipes:
+  - id: demo-egg
+    villageId: demo-village
+    input:
+      id: Dried Apple
+      kind: 1
+      sellValue: 2
+    inputQuantity: 3
+    output:
+      id: Egg
+      kind: 0
+      sellValue: 1
+    outputQuantity: 2
+  - id: demo-milk
+    villageId: demo-village
+    input:
+      id: Dried Apple
+      kind: 1
+      sellValue: 2
+    inputQuantity: 3
+    output:
+      id: Milk
+      kind: 0
+      sellValue: 1
+    outputQuantity: 2
   cutterRecipes:
   - input:
       id: potato
@@ -791,6 +816,13 @@ MonoBehaviour:
       instancePrefab: {fileID: 0}
       visualPrefab: {fileID: 0}
       placedColor: {r: 0.95, g: 0.72, b: 0.3, a: 1}
+    placementBehavior: {fileID: 0}
+  - definition:
+      id: TradeBuilding
+      footprint: {x: 3, y: 3}
+      instancePrefab: {fileID: 0}
+      visualPrefab: {fileID: 0}
+      placedColor: {r: 0.68, g: 0.56, b: 0.82, a: 1}
     placementBehavior: {fileID: 0}
 --- !u!114 &6004
 MonoBehaviour:

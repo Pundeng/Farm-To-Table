@@ -70,6 +70,10 @@ namespace CozyFoodFactory.Buildings
             Array.Empty<ProcessingRecipe>();
         [SerializeField] private MixingRecipe[] mixerRecipes =
             Array.Empty<MixingRecipe>();
+        [SerializeField] private TradeRecipe[] tradeRecipes = Array.Empty<TradeRecipe>();
+        [SerializeField] private string tradeVillageId = "demo-village";
+        private TradeRecipe[] VillageTrades => tradeRecipes.Where(recipe =>
+            recipe != null && recipe.VillageId == tradeVillageId).ToArray();
         [SerializeField] private CuttingRecipe[] cutterRecipes =
             Array.Empty<CuttingRecipe>();
         [SerializeField, Min(0.01f)] private float cutterDuration = 1f;
@@ -108,6 +112,7 @@ namespace CozyFoodFactory.Buildings
         private bool devInspectorOpen;
         private DemoPanel demoPanel;
         private FarmPlot cropPickerPlot;
+        private TradeBuilding tradePickerBuilding;
         private string rememberedFarmCropId;
         private Vector2 buildMenuScroll;
         private BlueprintLibrary blueprintLibrary;
@@ -129,7 +134,7 @@ namespace CozyFoodFactory.Buildings
         private static readonly string[] HotbarBuildingIds =
         {
             nameof(FarmPlot), nameof(Belt), nameof(Harvester),
-            nameof(Processor), nameof(BasicMixer), nameof(Cutter)
+            nameof(Processor), nameof(BasicMixer), nameof(Cutter), nameof(TradeBuilding)
         };
         private int selectedBuildingIndex;
         private bool isPlacementModeActive;
@@ -182,7 +187,7 @@ namespace CozyFoodFactory.Buildings
         public void OpenPanel(DemoPanel panel)
         {
             if (!foodDemoControls) return;
-            cropPickerPlot = null;
+            cropPickerPlot = null; tradePickerBuilding = null;
             if (panel == DemoPanel.None) { ClosePanel(); return; }
             if (demoPanel == panel && panel == DemoPanel.Region) return;
             if (demoPanel == panel && panel != DemoPanel.Machine)
@@ -195,6 +200,7 @@ namespace CozyFoodFactory.Buildings
         }
         public void ClosePanel()
         {
+            tradePickerBuilding = null;
             if (demoPanel == DemoPanel.Property && propertySupply?.IsVisible == true)
                 propertySupply.TogglePanel();
             if (demoPanel == DemoPanel.Machine) engraverUpgradePanel?.CloseConfiguration();
@@ -254,6 +260,9 @@ namespace CozyFoodFactory.Buildings
                     case nameof(BasicMixer):
                         building.mixer = instance.GetComponent<BasicMixer>()?.CaptureWorldState();
                         break;
+                    case nameof(TradeBuilding):
+                        building.tradeBuilding = instance.GetComponent<TradeBuilding>()?.CaptureWorldState();
+                        break;
                     case nameof(Cutter):
                         building.cutter = instance.GetComponent<Cutter>()?.CaptureWorldState();
                         break;
@@ -287,7 +296,7 @@ namespace CozyFoodFactory.Buildings
 
             FactoryWorldSnapshotValidator.ValidateAgainstScene(world, buildingOptions,
                 propertySources, market.Regions, savedUnlocks, processorRecipes,
-                mixerRecipes, market.InputCell, cutterRecipes);
+                mixerRecipes, market.InputCell, cutterRecipes, VillageTrades);
         }
 
         public void RestoreWorldSnapshot(FactoryWorldData world,
@@ -324,6 +333,8 @@ namespace CozyFoodFactory.Buildings
                     instance.GetComponent<Processor>().RestoreWorldState(saved.processor);
                 else if (saved.mixer != null)
                     instance.GetComponent<BasicMixer>().RestoreWorldState(saved.mixer);
+                else if (saved.tradeBuilding != null)
+                    instance.GetComponent<TradeBuilding>().RestoreWorldState(saved.tradeBuilding);
                 else if (saved.cutter != null)
                     instance.GetComponent<Cutter>().RestoreWorldState(saved.cutter);
                 else if (saved.belt != null)
@@ -379,6 +390,12 @@ namespace CozyFoodFactory.Buildings
                     mixerBehavior.Configure(processorTransportCoordinator, mixerRecipes,
                         recipeDiscoveries);
                     option.SetRuntimePlacementBehavior(mixerBehavior);
+                }
+                else if (option?.Definition?.Id == nameof(TradeBuilding))
+                {
+                    var tradeBehavior = gameObject.AddComponent<TradeBuildingPlacementBehavior>();
+                    tradeBehavior.Configure(processorTransportCoordinator, VillageTrades);
+                    option.SetRuntimePlacementBehavior(tradeBehavior);
                 }
                 else if (option?.Definition?.Id == nameof(Cutter))
                 {
@@ -517,11 +534,14 @@ namespace CozyFoodFactory.Buildings
                     return;
                 }
                 HandleDemoHotbarShortcuts();
+                if (tradePickerBuilding != null && Mouse.current.leftButton.wasPressedThisFrame &&
+                    !TradePickerRect.Contains(GetGuiPointer()))
+                { tradePickerBuilding = null; return; }
                 if (cropPickerPlot != null &&
                     Mouse.current.leftButton.wasPressedThisFrame &&
                     !CropPickerRect.Contains(GetGuiPointer()))
                 {
-                    cropPickerPlot = null;
+                    cropPickerPlot = null; tradePickerBuilding = null;
                     return;
                 }
                 if (demoPanel != DemoPanel.None &&
@@ -707,6 +727,22 @@ namespace CozyFoodFactory.Buildings
                         outputNeeded && processorTransportCoordinator?.CanAcceptOutput(
                             cutter.OutputBCell) != true,
                         cutter.HasRecentInvalidRecipe, cutter.State == CutterState.Idle);
+                }
+                else if (building.TryGetComponent(out TradeBuilding trade))
+                {
+                    feedback = trade.OutputBlocked
+                        ? new MachineFeedback(MachineFeedbackState.OutputBlocked,
+                            MachineFeedbackPort.OutputA | MachineFeedbackPort.OutputB | MachineFeedbackPort.OutputC,
+                            "Trade output blocked", "Connect or clear any output Belt.")
+                        : trade.HasRecentInvalidRecipe
+                        ? new MachineFeedback(MachineFeedbackState.InvalidRecipe,
+                            MachineFeedbackPort.InputA | MachineFeedbackPort.InputB | MachineFeedbackPort.InputC,
+                            "Wrong trade input", "Feed the food shown in the selected trade.")
+                        : trade.Process.SelectedTrade == null
+                        ? new MachineFeedback(MachineFeedbackState.NeedsInput, MachineFeedbackPort.InputA,
+                            "Choose a trade", "Click the Trade Building to select Egg or Milk.")
+                        : MachineFeedbackResolver.Processor(false, false, false,
+                            trade.Process.PendingOutput == 0);
                 }
                 else if (building.TryGetComponent(out Harvester harvester))
                 {
@@ -976,7 +1012,8 @@ namespace CozyFoodFactory.Buildings
                 building.TryGetComponent(out BasicMixer mixer) &&
                     (mixer.SlotA != null || mixer.SlotB != null || mixer.HasOutput) ||
                 building.TryGetComponent(out Cutter cutter) &&
-                    cutter.State != CutterState.Idle;
+                    cutter.State != CutterState.Idle ||
+                building.TryGetComponent(out TradeBuilding trade) && !trade.Process.CanChangeTrade;
         }
 
         private bool TryCaptureSelection(out BuildingGroupCopy group)
@@ -1864,10 +1901,13 @@ namespace CozyFoodFactory.Buildings
                     ConstructionLayout before = foodDemoControls
                         ? CaptureConstructionLayout() : null;
                     if (PlaceBuilding(option, anchorCell, selectedRotation,
-                            out BuildingPlacement placed) && foodDemoControls &&
-                        option.Definition.Id == nameof(FarmPlot) &&
-                        buildingInstances[placed].TryGetComponent(out FarmPlot plot))
-                        OpenCropPicker(plot);
+                            out BuildingPlacement placed) && foodDemoControls)
+                    {
+                        if (buildingInstances[placed].TryGetComponent(out FarmPlot plot))
+                            OpenCropPicker(plot);
+                        else if (buildingInstances[placed].TryGetComponent(out TradeBuilding trade))
+                        { ClosePanel(); tradePickerBuilding = trade; }
+                    }
                     RecordConstruction(before);
                 }
 
@@ -1937,6 +1977,11 @@ namespace CozyFoodFactory.Buildings
                 return;
             }
 
+            if (instance.TryGetComponent(out TradeBuilding selectedTrade))
+            {
+                ClosePanel(); cropPickerPlot = null; tradePickerBuilding = null; tradePickerBuilding = selectedTrade;
+                return;
+            }
             if (foodDemoControls && feedbackViews.TryGetValue(placement,
                     out MachineFeedbackView feedbackView) &&
                 feedbackView.Feedback.HasProblem)
@@ -2100,7 +2145,8 @@ namespace CozyFoodFactory.Buildings
                 else BuildingVisualFactory.MultiplyAlpha(visual,
                     definition.PlacedColor.a);
                 BuildingVisualFactory.CreatePortMarkers(buildingObject.transform,
-                    option.PortPreviews, gridSystem.CellSize, placement.Rotation);
+                    option.PortPreviews, gridSystem.CellSize, placement.Rotation,
+                    definition.Id == nameof(TradeBuilding));
                 option.PlacementBehavior?.InitializePlacedBuilding(buildingObject, placement);
                 if (foodDemoControls && buildingObject.TryGetComponent(out FarmPlot farmPlot))
                 {
@@ -2110,6 +2156,7 @@ namespace CozyFoodFactory.Buildings
                 if (buildingObject.GetComponent<Processor>() != null ||
                     buildingObject.GetComponent<BasicMixer>() != null ||
                     buildingObject.GetComponent<Cutter>() != null ||
+                    buildingObject.GetComponent<TradeBuilding>() != null ||
                     buildingObject.GetComponent<Harvester>() != null)
                     BuildingVisualFactory.CreateFeedbackView(buildingObject.transform,
                         gridSystem.CellSize);
@@ -2117,7 +2164,8 @@ namespace CozyFoodFactory.Buildings
                     buildingObject.GetComponent<Harvester>() != null ||
                     buildingObject.GetComponent<Processor>() != null ||
                     buildingObject.GetComponent<BasicMixer>() != null ||
-                    buildingObject.GetComponent<Cutter>() != null)
+                    buildingObject.GetComponent<Cutter>() != null ||
+                    buildingObject.GetComponent<TradeBuilding>() != null)
                     buildingObject.AddComponent<MachineVisualAnimator>().Initialize(
                         visual, gridSystem.CellSize, processorTransportCoordinator);
                 return instance;
@@ -2222,7 +2270,7 @@ namespace CozyFoodFactory.Buildings
             selectedBuildingIndex = index;
             if (foodDemoControls)
             {
-                cropPickerPlot = null;
+                cropPickerPlot = null; tradePickerBuilding = null;
                 ClosePanel();
                 if (isGroupPasteModeActive) ExitGroupPasteMode();
                 propertySupply?.ExitTool();
@@ -2252,7 +2300,7 @@ namespace CozyFoodFactory.Buildings
             }
             DemoEscapeAction action = DemoEscapePriority.Choose(
                 recipeDiscoveryPanel?.HasModal == true, systemMenuOpen,
-                demoPanel != DemoPanel.None || cropPickerPlot != null,
+                demoPanel != DemoPanel.None || cropPickerPlot != null || tradePickerBuilding != null,
                 isGroupPasteModeActive ||
                 isPlacementModeActive || propertySupply?.IsActive == true,
                 selectionStartCell.HasValue || selection.SelectedPlacements.Count > 0);
@@ -2265,7 +2313,8 @@ namespace CozyFoodFactory.Buildings
                     systemMenuOpen = false;
                     break;
                 case DemoEscapeAction.ClosePanel:
-                    if (cropPickerPlot != null) cropPickerPlot = null;
+                    if (tradePickerBuilding != null) tradePickerBuilding = null;
+                    else if (cropPickerPlot != null) cropPickerPlot = null;
                     else ClosePanel();
                     break;
                 case DemoEscapeAction.CancelTool:
@@ -2291,7 +2340,7 @@ namespace CozyFoodFactory.Buildings
             placementHistoryStart = null;
             RecordConstruction(removalHistoryStart);
             removalHistoryStart = null;
-            cropPickerPlot = null;
+            cropPickerPlot = null; tradePickerBuilding = null;
             isPlacementModeActive = false;
             propertySupply?.ExitTool();
             placementPreview.Hide();
@@ -2308,7 +2357,8 @@ namespace CozyFoodFactory.Buildings
                 Keyboard.current.digit3Key.wasPressedThisFrame ? 2 :
                 Keyboard.current.digit4Key.wasPressedThisFrame ? 3 :
                 Keyboard.current.digit5Key.wasPressedThisFrame ? 4 :
-                Keyboard.current.digit6Key.wasPressedThisFrame ? 5 : -1;
+                Keyboard.current.digit6Key.wasPressedThisFrame ? 5 :
+                Keyboard.current.digit7Key.wasPressedThisFrame ? 6 : -1;
             if (slot >= 0) SelectBuilding(FindBuildingOption(HotbarBuildingIds[slot]));
         }
 
@@ -2450,6 +2500,7 @@ namespace CozyFoodFactory.Buildings
 
         private void OpenCropPicker(FarmPlot plot)
         {
+            tradePickerBuilding = null;
             ClosePanel();
             CropDefinition remembered = plot.AvailableCrops.FirstOrDefault(crop =>
                 crop != null && crop.Id == rememberedFarmCropId &&
@@ -2458,6 +2509,50 @@ namespace CozyFoodFactory.Buildings
                 plot.AvailableCrops.FirstOrDefault(plot.IsCropUnlocked);
             if (defaultCrop != null) plot.SelectCrop(defaultCrop);
             cropPickerPlot = plot;
+        }
+
+        private Rect TradePickerRect
+        {
+            get
+            {
+                Vector3 screen = UnityEngine.Camera.main.WorldToScreenPoint(tradePickerBuilding.transform.position);
+                float height = 42f + tradePickerBuilding.Process.Recipes.Count * 27f +
+                    (tradePickerBuilding.Process.CanChangeTrade ? 0f : 44f);
+                return new Rect(Mathf.Clamp(screen.x + 18f, 8f, Mathf.Max(8f, Screen.width - 184f)),
+                    Mathf.Clamp(Screen.height - screen.y - height * .5f, 8f,
+                        Mathf.Max(8f, Screen.height - height - 8f)), 176f, height);
+            }
+        }
+        private void DrawTradePicker()
+        {
+            if (tradePickerBuilding == null) return;
+            var process = tradePickerBuilding.Process;
+            Rect rect = TradePickerRect;
+            GUI.Box(rect, GUIContent.none);
+            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, rect.width - 16f, 22f), "Choose Trade");
+            for (int i = 0; i < process.Recipes.Count; i++)
+            {
+                TradeRecipe recipe = process.Recipes[i];
+                bool enabled = GUI.enabled;
+                GUI.enabled = enabled && process.CanChangeTrade;
+                if (GUI.Button(new Rect(rect.x + 8f, rect.y + 30f + i * 27f,
+                    rect.width - 16f, 24f), new GUIContent(recipe.Output.Id, recipe.Label)))
+                {
+                    ConstructionLayout before = CaptureConstructionLayout();
+                    process.Select(recipe.Id);
+                    RecordConstruction(before);
+                    tradePickerBuilding = null;
+                    GUI.enabled = enabled;
+                    return;
+                }
+                GUI.enabled = enabled;
+            }
+            if (!process.CanChangeTrade)
+                GUI.Label(new Rect(rect.x + 8f, rect.y + 30f + process.Recipes.Count * 27f,
+                    rect.width - 16f, 44f), "Drain items first.\n" +
+                    $"In: {process.BufferedInput}  Out: {process.PendingOutput}");
+            if (!string.IsNullOrEmpty(GUI.tooltip))
+                GUI.Box(new Rect(rect.x, rect.yMax + 4f, 250f, 26f), GUI.tooltip);
         }
 
         private void DrawCropPicker()
@@ -2483,7 +2578,7 @@ namespace CozyFoodFactory.Buildings
                     rememberedFarmCropId = crop.Id;
                     if (market?.Unlocks.MarkSeen(UnlockKey.CropCategory, crop.Id) == true)
                         ShowContextualGuidance($"Grow {crop.Id} in a Farm Plot, then collect it with a Harvester.");
-                    cropPickerPlot = null;
+                    cropPickerPlot = null; tradePickerBuilding = null;
                     GUI.enabled = wasEnabled;
                     break;
                 }
@@ -2509,7 +2604,8 @@ namespace CozyFoodFactory.Buildings
         {
             if (!foodDemoControls || Mouse.current == null) return false;
             Vector2 pointer = GetGuiPointer();
-            return cropPickerPlot != null && CropPickerRect.Contains(pointer) ||
+            return tradePickerBuilding != null && TradePickerRect.Contains(pointer) ||
+                cropPickerPlot != null && CropPickerRect.Contains(pointer) ||
                 (demoPanel is DemoPanel.Build or DemoPanel.Help or DemoPanel.Issues) &&
                     DemoPanelRect.Contains(pointer) ||
                 demoPanel == DemoPanel.Recipe &&
@@ -2613,7 +2709,7 @@ namespace CozyFoodFactory.Buildings
                 OpenPanel(DemoPanel.Help);
             if (GUI.Button(new Rect(utility.x + 98f, utility.y, 46f, 38f), "System"))
             {
-                cropPickerPlot = null;
+                cropPickerPlot = null; tradePickerBuilding = null;
                 ClosePanel();
                 systemMenuOpen = true;
             }
@@ -2643,6 +2739,7 @@ namespace CozyFoodFactory.Buildings
             {
                 GUI.enabled = previousEnabled && !BlocksAllWorldInput;
                 DrawCropPicker();
+                DrawTradePicker();
             }
             GUI.enabled = previousEnabled;
         }
@@ -3109,6 +3206,7 @@ namespace CozyFoodFactory.Buildings
             nameof(Processor) => "Processor: feed food from the west and pipe a property to the south port.",
             nameof(BasicMixer) => "Mixer: feed its two west inputs on separate belts and collect the east output.",
             nameof(Cutter) => "Cutter: feed its rear input and connect both output belts.",
+            nameof(TradeBuilding) => "Trade Building: choose a trade, feed any left input, collect from any bottom output.",
             _ => $"Select {id}, choose a valid cell, and place it on the map."
         };
 

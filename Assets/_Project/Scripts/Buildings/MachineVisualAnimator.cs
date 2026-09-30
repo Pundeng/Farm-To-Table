@@ -33,6 +33,8 @@ namespace CozyFoodFactory.Buildings
         private Processor processor;
         private BasicMixer mixer;
         private Cutter cutter;
+        private TradeBuilding trade;
+        private int previousTradeOutput;
         private Market market;
         private BeltTransportCoordinator transport;
         private MachineFeedbackView feedbackView;
@@ -59,6 +61,7 @@ namespace CozyFoodFactory.Buildings
             processor = GetComponent<Processor>();
             mixer = GetComponent<BasicMixer>();
             cutter = GetComponent<Cutter>();
+            trade = GetComponent<TradeBuilding>();
             transport = coordinator;
             feedbackView = GetComponent<MachineFeedbackView>();
             CreatePart(visualRoot.transform, cellSize,
@@ -157,6 +160,12 @@ namespace CozyFoodFactory.Buildings
                 if (observed && previousCutterState == CutterState.Processing &&
                     cutter.State == CutterState.WaitingForOutput) React();
                 previousCutterState = cutter.State;
+            }
+            if (trade != null)
+            {
+                working = trade.Process.PendingOutput > 0 && !trade.OutputBlocked;
+                if (observed && trade.Process.PendingOutput > previousTradeOutput) React();
+                previousTradeOutput = trade.Process.PendingOutput;
             }
             previousOutput = output;
             if (harvester != null) previousHarvestCount = harvester.OutputCount;
