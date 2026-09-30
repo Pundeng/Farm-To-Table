@@ -14,6 +14,23 @@ Phase 1. Shared grid, building, belt, item transport, and food save
 infrastructure remains. Project namespace and assembly names do not define
 new gameplay requirements.
 
+## Current campaign — Chapter 1: Vegetable Automation
+
+The active `Demo.unity` campaign is Chapter 1, not the former five-order Demo slice. The Market Inspector's ordered **Main Campaign Objectives** array is the editable source for objective order, food requirements, quantities, and rewards. The chapter uses Carrot, Tomato, Onion, and Potato; Apple and Strawberry are reserved for later fruit progression. Basil is outside the main campaign. These delivery quantities are intentional starting targets, not final balance.
+
+| Objective | Delivery | Main lesson / reward |
+| --- | --- | --- |
+| O1 Deliver Carrots | Carrot x30 | Farm, Harvester, Belt, Market; unlock Processor and Heat use. |
+| O2 Roasted Carrot | Roasted Carrot x40 | Carrot + Heat in Processor; unlock Tomato, Onion, Basic Mixer. |
+| O3 Tomato Sauce | Tomato Sauce x70 | Tomato + Onion in Mixer; unlock Cutter and East Field access. |
+| O4 Potato Slice | Potato Slice x90 | Restore East Field for Potato; Cutter makes two slices per cycle. |
+| O5 French Fries | French Fries x150 | Potato Slice + Heat; reuse the first Property. |
+| O6 Tomato Soup | Tomato Soup x220 | Tomato Sauce + Water; introduce the second Property. |
+| O7 Loaded Fries | Loaded Fries x300 | French Fries + Tomato Sauce; share the Sauce line. |
+| O8 Garden Lunch | Garden Lunch x400 | Loaded Fries + Tomato Soup; complete Chapter 1. |
+
+The seven recipes use the existing Processor, Basic Mixer, and Cutter. Hints for the active objective and its prerequisites do not count as recipe discovery; first actual production does. Heat becomes constructible after O1 and Water after O5. Time and Cold have no required Chapter 1 recipe. Sources still exist in the scene, but the normal Chapter 1 Property construction UI does not offer them. Chapter completion follows O8; Chicken Village and Egg are planned for later and are not implemented here. The former Apple/Dried Apple/Vegetable Base/Cut Potato progression and Air/Moisture naming below are historical examples where retained for context.
+
 ---
 
 ## Milestone 06 — Factory Scale (demo rules)
@@ -42,11 +59,11 @@ The map shows restored farmable cells, locked future farmland, and ground that c
 
 Players select locked regions by clicking their map area. Restored regions can be inspected through the Market list or Alt-clicked on the map, leaving ordinary building interactions available. The selected region shows its name, cell bounds, price, required progression, and used/free Farm Plot capacity. A region may be bought only when it shares a cardinal edge with an already restored region, its progression requirement is met, and regular currency covers its price. Diagonal contact does not count. A successful purchase spends currency once, restores the region immediately, and activates its farmable cells. Failed or repeated purchases spend nothing. The selected region and map show progression-locked, unaffordable, available, and restored states. Restoration gives visible confirmation. Region selection and purchase clicks cannot place or remove buildings.
 
-The existing Vegetable Base order remains the prerequisite for East Field; restoring East Field still grants Potato once. The starting region is restored for free. The demo's additional surrounding rectangles and all region prices are **provisional authored content**, not finalized world layout or balance. Each authored rectangle currently designates every cell inside it as farmable; ground outside those rectangles is non-farmable. Region unlocks and remaining currency use the existing save data; Farm Plot usage and free-cell capacity are derived from restored buildings after loading.
+The O3 Tomato Sauce order is the prerequisite for East Field; restoring East Field still grants Potato once. The starting region is restored for free. The scene's additional surrounding rectangles and all region prices are **provisional authored content**, not finalized world layout or balance. Each authored rectangle currently designates every cell inside it as farmable; ground outside those rectangles is non-farmable. Region unlocks and remaining currency use the Chapter 1 save data; Farm Plot usage and free-cell capacity are derived from restored buildings after loading.
 
 Final region geometry, pricing, progression for regions beyond East Field, and procedural distribution remain undecided.
 
-## Milestone 02 — From Farm to Food Factory (finalized demo slice)
+## Milestone 02 — From Farm to Food Factory (historical Demo slice; superseded by Chapter 1)
 
 This section fixes the first-time demo path. Quantities, sell values, crop times, and Cutter cycle time below are provisional Inspector values, not final balance.
 
@@ -264,7 +281,7 @@ The following Harvester rules remain TBD:
 
 ## 5.1 Concept
 
-The game uses four culinary processing properties inspired by the conceptual structure of the classical four elements.
+The game uses four culinary processing properties as gameplay abstractions.
 
 These are processing forces rather than physical elemental ingredients.
 
@@ -285,22 +302,19 @@ Associated processes:
 - Heating
 - Frying
 
-### Moisture
+### Water
 
-Concept: Water and extraction.
+Concept: Added liquid and water-based transformation.
 
 Associated processes:
 
-- Boiling
-- Simmering
-- Infusion
-- Hydration
+- Soup
+- Adding liquid
+- Water-based food
 
 ### Time
 
 Concept: Aging and accumulation.
-
-Originally inspired by the conceptual qualities of Earth.
 
 Associated processes:
 
@@ -309,16 +323,16 @@ Associated processes:
 - Preservation
 - Maturation
 
-### Air
+### Cold
 
-Concept: Air and lightness.
+Concept: Chilling and cold transformation.
 
 Associated processes:
 
-- Drying
-- Aeration
-- Whipping
-- Cooling
+- Chilling
+- Refrigeration
+- Freezing
+- Frozen desserts
 
 ## 5.3 Property Acquisition
 
@@ -376,15 +390,7 @@ Later progression allows processors to receive multiple processing properties.
 
 All connected properties are considered part of the recipe requirements.
 
-Example:
-
-Apple + Heat → Baked Apple
-
-Apple + Air → Dried Apple
-
-Apple + Heat + Air → Apple Chips
-
-These recipes are illustrative examples, not finalized content.
+No Chapter 1 recipe uses multiple Properties. A future multi-Property recipe needs a separate progression decision and implementation.
 
 ## 6.5 Unresolved Network Rules
 
@@ -420,7 +426,7 @@ Ingredient + Property Set → Result
 
 Example:
 
-Apple + Air → Dried Apple
+Carrot + Heat → Roasted Carrot
 
 ### Mixing Recipe
 
@@ -428,16 +434,16 @@ Ingredient Set → Result
 
 Example:
 
-Basil + Pine Nuts → Pesto
+Tomato + Onion → Tomato Sauce
 
 Complex recipes are constructed by chaining these two operations.
 
 Example:
 
 Tomato + Onion
-→ Vegetable Base
+→ Tomato Sauce
 
-Vegetable Base + Moisture
+Tomato Sauce + Water
 → Tomato Soup
 
 ## 7.3 Automatic Recipe Detection
@@ -671,6 +677,12 @@ Conveyor belts transport:
 - Compost
 
 Crops enter this item transportation network through Harvesters. Farmland grows crops but does not directly feed belts.
+
+### Smart Belt routing
+
+Belt drag direction is the strongest placement signal. Existing flow should stay intact when a new neighbor appears. Compatible adjacent paths connect when their directions agree, with straight continuation preferred over a branch and ambiguous adjacency left unconnected. Endpoints, straights, corners, and T junctions are supported. A four-way shape is one junction, not two independent crossing lanes.
+
+A split sends successive items fairly across available outputs. If its preferred output is blocked, it uses another available output; if all are blocked, the item waits without duplication or loss. A merge arbitrates competing inputs fairly, accepts at most one item into a single-slot destination per step, and lets an active input proceed when another is empty. Automatic round-robin routing is the default. Priority routing, filters, ratios, and dedicated crossings are deferred.
 
 ## 13.2 Property Transportation
 
@@ -968,7 +980,7 @@ Farmable Land
 → Processor / Mixer
 → Market
 
-## Suggested Test Recipes
+## Suggested Test Recipes (historical prototype examples; not the active Chapter 1 catalog)
 
 ### Pesto
 

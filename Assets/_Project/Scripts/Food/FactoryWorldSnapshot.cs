@@ -96,6 +96,10 @@ namespace CozyFoodFactory.Food
         public SavedFood item;
         public GridDirection entryDirection;
         public float progress;
+        // Zero means the legacy single output specified by building rotation.
+        public int outputMask;
+        public int nextOutputIndex;
+        public int nextInputIndex;
     }
 
     [Serializable]
@@ -215,7 +219,9 @@ namespace CozyFoodFactory.Food
             state.elapsedSeconds == 0f;
 
         private static bool IsEmpty(SavedBelt state) => IsEmpty(state.item) &&
-            state.entryDirection == default && state.progress == 0f;
+            state.entryDirection == default && state.progress == 0f &&
+            state.outputMask == 0 && state.nextOutputIndex == 0 &&
+            state.nextInputIndex == 0;
 
         private static bool IsEmpty(SavedProcessor state) =>
             state.state == default && IsEmpty(state.input) &&
@@ -553,7 +559,12 @@ namespace CozyFoodFactory.Food
             SavedBelt belt = building.belt;
             if (belt != null && (!Enum.IsDefined(typeof(GridDirection),
                     belt.entryDirection) || !IsFiniteNonnegative(belt.progress) ||
-                belt.progress > 1f || belt.item == null && belt.progress != 0f))
+                belt.progress > 1f || belt.item == null && belt.progress != 0f ||
+                belt.outputMask < 0 || belt.outputMask > BeltCell.AllDirections ||
+                belt.outputMask != 0 &&
+                    (belt.outputMask & BeltCell.Bit(building.rotation.ToGridDirection())) == 0 ||
+                belt.nextOutputIndex < 0 || belt.nextOutputIndex > 3 ||
+                belt.nextInputIndex < 0 || belt.nextInputIndex > 3))
             {
                 throw new ArgumentException("Invalid belt state.");
             }

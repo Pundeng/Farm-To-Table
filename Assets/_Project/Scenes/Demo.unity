@@ -221,6 +221,10 @@ MonoBehaviour:
   minimumZoom: 3
   maximumZoom: 20
   zoomTowardCursor: 1
+  mediumLodZoom: 7
+  farLodZoom: 13
+  lodHysteresis: 0.6
+  issueJumpSpeed: 18
   marketPanel: {fileID: 200000003}
   recipeDiscoveryPanel: {fileID: 6010}
   buildings: {fileID: 6002}
@@ -688,6 +692,96 @@ MonoBehaviour:
   engraverUpgradePanel: {fileID: 6011}
   market: {fileID: 200000002}
   foodDemoControls: 1
+  secondaryResourceText: 0
+  buildingOptions:
+  - definition:
+      id: Belt
+      footprint: {x: 1, y: 1}
+      occupiedCells: []
+      instancePrefab: {fileID: 3003128107594192297, guid: e86987c9225e57d40bc83273d12d5091, type: 3}
+      visualPrefab: {fileID: 0}
+      visualSprite: {fileID: 0}
+      visualScale: {x: 1, y: 1}
+      visualOffset: {x: 0, y: 0}
+      visualSortingOffset: 0
+      keepVisualUpright: 0
+      placedColor: {r: 0.18, g: 0.45, b: 0.75, a: 1}
+    placementBehavior: {fileID: 6004}
+  - definition:
+      id: FarmPlot
+      footprint: {x: 1, y: 1}
+      occupiedCells: []
+      instancePrefab: {fileID: 1000, guid: f021b416d88447e88f21dc2487384606, type: 3}
+      visualPrefab: {fileID: 0}
+      visualSprite: {fileID: 0}
+      visualScale: {x: 1, y: 1}
+      visualOffset: {x: 0, y: 0}
+      visualSortingOffset: 0
+      keepVisualUpright: 0
+      placedColor: {r: 0.45, g: 0.7, b: 0.3, a: 1}
+    placementBehavior: {fileID: 6008}
+  - definition:
+      id: Harvester
+      footprint: {x: 1, y: 2}
+      occupiedCells: []
+      instancePrefab: {fileID: 2000, guid: 79ae9a4327d34009bf064005771b74a1, type: 3}
+      visualPrefab: {fileID: 0}
+      visualSprite: {fileID: 0}
+      visualScale: {x: 1, y: 1}
+      visualOffset: {x: 0, y: 0}
+      visualSortingOffset: 0
+      keepVisualUpright: 0
+      placedColor: {r: 0.85, g: 0.6, b: 0.2, a: 0.6}
+    placementBehavior: {fileID: 6009}
+  - definition:
+      id: Processor
+      footprint: {x: 2, y: 2}
+      occupiedCells:
+      - {x: 0, y: 0}
+      - {x: 0, y: 1}
+      - {x: 1, y: 1}
+      instancePrefab: {fileID: 0}
+      visualPrefab: {fileID: 0}
+      visualSprite: {fileID: 0}
+      visualScale: {x: 1, y: 1}
+      visualOffset: {x: 0, y: 0}
+      visualSortingOffset: 0
+      keepVisualUpright: 0
+      placedColor: {r: 0.7, g: 0.45, b: 0.75, a: 1}
+    placementBehavior: {fileID: 0}
+  - definition:
+      id: BasicMixer
+      footprint: {x: 2, y: 2}
+      occupiedCells: []
+      instancePrefab: {fileID: 0}
+      visualPrefab: {fileID: 0}
+      visualSprite: {fileID: 0}
+      visualScale: {x: 1, y: 1}
+      visualOffset: {x: 0, y: 0}
+      visualSortingOffset: 0
+      keepVisualUpright: 0
+      placedColor: {r: 0.8, g: 0.55, b: 0.3, a: 1}
+    placementBehavior: {fileID: 0}
+  - definition:
+      id: Cutter
+      footprint: {x: 1, y: 2}
+      occupiedCells: []
+      instancePrefab: {fileID: 0}
+      visualPrefab: {fileID: 0}
+      visualSprite: {fileID: 0}
+      visualScale: {x: 1, y: 1}
+      visualOffset: {x: 0, y: 0}
+      visualSortingOffset: 0
+      keepVisualUpright: 0
+      placedColor: {r: 0.95, g: 0.72, b: 0.3, a: 1}
+    placementBehavior: {fileID: 0}
+  - definition:
+      id: TradeBuilding
+      footprint: {x: 3, y: 3}
+      instancePrefab: {fileID: 0}
+      visualPrefab: {fileID: 0}
+      placedColor: {r: 0.68, g: 0.56, b: 0.82, a: 1}
+    placementBehavior: {fileID: 0}
   propertySources:
   - property: 0
     cell: {x: -6, y: 5}
@@ -701,20 +795,24 @@ MonoBehaviour:
   - property: 3
     cell: {x: -6, y: -4}
     capacity: 4
+  propertyVisuals:
+    source: {fileID: 0}
+    collector: {fileID: 0}
+    pipe: {fileID: 0}
   processorTransportCoordinator: {fileID: 362208087}
   processorDuration: 1
   processorRecipes:
   - input:
-      id: apple
+      id: carrot
       kind: 0
       sellValue: 1
-    property: 3
+    property: 0
     output:
-      id: Dried Apple
+      id: Roasted Carrot
       kind: 1
       sellValue: 1
   - input:
-      id: Cut Potato
+      id: Potato Slice
       kind: 1
       sellValue: 2
     property: 0
@@ -722,6 +820,65 @@ MonoBehaviour:
       id: French Fries
       kind: 1
       sellValue: 3
+  - input:
+      id: Tomato Sauce
+      kind: 1
+      sellValue: 1
+    property: 1
+    output:
+      id: Tomato Soup
+      kind: 1
+      sellValue: 1
+  mixerRecipes:
+  - ingredientA:
+      id: tomato
+      kind: 0
+      sellValue: 1
+    ingredientB:
+      id: onion
+      kind: 0
+      sellValue: 1
+    output:
+      id: Tomato Sauce
+      kind: 1
+      sellValue: 1
+  - ingredientA:
+      id: French Fries
+      kind: 1
+      sellValue: 3
+    ingredientB:
+      id: Tomato Sauce
+      kind: 1
+      sellValue: 1
+    output:
+      id: Loaded Fries
+      kind: 1
+      sellValue: 1
+  - ingredientA:
+      id: Loaded Fries
+      kind: 1
+      sellValue: 1
+    ingredientB:
+      id: Tomato Soup
+      kind: 1
+      sellValue: 1
+    output:
+      id: Garden Lunch
+      kind: 1
+      sellValue: 1
+  cutterRecipes:
+  - input:
+      id: potato
+      kind: 0
+      sellValue: 1
+    output:
+      id: Potato Slice
+      kind: 1
+      sellValue: 2
+  cutterDuration: 1
+  propertyIssueDelay: 1.5
+  invalidIssueDelay: 0.75
+  blockedIssueDelay: 0.75
   tradeRecipes:
   - id: demo-egg
     villageId: demo-village
@@ -747,83 +904,6 @@ MonoBehaviour:
       kind: 0
       sellValue: 1
     outputQuantity: 2
-  cutterRecipes:
-  - input:
-      id: potato
-      kind: 0
-      sellValue: 1
-    output:
-      id: Cut Potato
-      kind: 1
-      sellValue: 2
-  cutterDuration: 1
-  mixerRecipes:
-  - ingredientA:
-      id: tomato
-      kind: 0
-      sellValue: 1
-    ingredientB:
-      id: onion
-      kind: 0
-      sellValue: 1
-    output:
-      id: Vegetable Base
-      kind: 1
-      sellValue: 1
-  buildingOptions:
-  - definition:
-      id: Belt
-      footprint: {x: 1, y: 1}
-      instancePrefab: {fileID: 3003128107594192297, guid: e86987c9225e57d40bc83273d12d5091, type: 3}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.18, g: 0.45, b: 0.75, a: 1}
-    placementBehavior: {fileID: 6004}
-  - definition:
-      id: FarmPlot
-      footprint: {x: 1, y: 1}
-      instancePrefab: {fileID: 1000, guid: f021b416d88447e88f21dc2487384606, type: 3}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.45, g: 0.7, b: 0.3, a: 1}
-    placementBehavior: {fileID: 6008}
-  - definition:
-      id: Harvester
-      footprint: {x: 1, y: 2}
-      instancePrefab: {fileID: 2000, guid: 79ae9a4327d34009bf064005771b74a1, type: 3}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.85, g: 0.6, b: 0.2, a: 0.6}
-    placementBehavior: {fileID: 6009}
-  - definition:
-      id: Processor
-      footprint: {x: 2, y: 2}
-      occupiedCells:
-      - {x: 0, y: 0}
-      - {x: 0, y: 1}
-      - {x: 1, y: 1}
-      instancePrefab: {fileID: 0}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.7, g: 0.45, b: 0.75, a: 1}
-    placementBehavior: {fileID: 0}
-  - definition:
-      id: BasicMixer
-      footprint: {x: 2, y: 2}
-      instancePrefab: {fileID: 0}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.8, g: 0.55, b: 0.3, a: 1}
-    placementBehavior: {fileID: 0}
-  - definition:
-      id: Cutter
-      footprint: {x: 1, y: 2}
-      instancePrefab: {fileID: 0}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.95, g: 0.72, b: 0.3, a: 1}
-    placementBehavior: {fileID: 0}
-  - definition:
-      id: TradeBuilding
-      footprint: {x: 3, y: 3}
-      instancePrefab: {fileID: 0}
-      visualPrefab: {fileID: 0}
-      placedColor: {r: 0.68, g: 0.56, b: 0.82, a: 1}
-    placementBehavior: {fileID: 0}
 --- !u!114 &6004
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -847,7 +927,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f9b3ef1b4ddd4f4b8e167f83feddb8cc, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.FarmPlotPlacementBehavior
 --- !u!114 &6009
 MonoBehaviour:
@@ -859,7 +939,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b8d0770cfc8336244af681c204a9a511, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.HarvesterPlacementBehavior
   transportCoordinator: {fileID: 362208087}
 --- !u!114 &6010
@@ -872,7 +952,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 104e3784c84a46a78d0301c877863396, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.UI.RecipeDiscoveryPanel
 --- !u!114 &6011
 MonoBehaviour:
@@ -884,54 +964,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04a437939d932cc4da7306bf57a2ec07, type: 3}
-  m_Name:
-  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.UI.ObjectivePanel
---- !u!1 &362208086
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 362208088}
-  - component: {fileID: 362208087}
-  m_Layer: 0
-  m_Name: Belt Transport
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &362208087
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 362208086}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: acc71ebc5d8f3064982163180192d37d, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Logistics.BeltTransportCoordinator
-  gridSystem: {fileID: 2002}
-  movementSpeed: 1
---- !u!4 &362208088
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 362208086}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.UI.ObjectivePanel
 --- !u!1 &200000000
 GameObject:
   m_ObjectHideFlags: 0
@@ -975,88 +1009,110 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 41f10a6203c949f1841e527352a6e287, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.Market
   transportCoordinator: {fileID: 362208087}
+  visualSprite: {fileID: 0}
   inputCell: {x: 10, y: 4}
-  lastDeliveryDebug:
+  lastDeliveryDebug: 
   orders:
-  - id: First Harvest
-    displayName: Deliver Apples
+  - id: O1
+    displayName: Deliver Carrots
     requirements:
     - food:
-        id: apple
+        id: carrot
         kind: 0
         sellValue: 1
-      quantity: 3
+      quantity: 30
     unlocks:
     - category: machine
       id: Processor
-    - category: crop
-      id: Onion
-    - category: seed_shop
-      id: Basil
-  - id: Dried Apples
-    displayName: Deliver Dried Apples
+  - id: O2
+    displayName: Roasted Carrot
     requirements:
     - food:
-        id: Dried Apple
+        id: Roasted Carrot
         kind: 1
         sellValue: 1
-      quantity: 2
+      quantity: 40
     unlocks:
     - category: machine
       id: BasicMixer
     - category: crop
       id: Tomato
-  - id: Vegetable Base
-    displayName: Deliver Vegetable Base
+    - category: crop
+      id: Onion
+  - id: O3
+    displayName: Tomato Sauce
     requirements:
     - food:
-        id: Vegetable Base
+        id: Tomato Sauce
         kind: 1
         sellValue: 1
-      quantity: 2
+      quantity: 70
     unlocks:
     - category: machine
       id: Cutter
     - category: region_access
       id: East Field
-  - id: Cut Potatoes
-    displayName: Deliver Cut Potatoes
+  - id: O4
+    displayName: Potato Slice
     requirements:
     - food:
-        id: Cut Potato
+        id: Potato Slice
         kind: 1
         sellValue: 2
-      quantity: 2
+      quantity: 90
     unlocks: []
-  - id: French Fries
-    displayName: Deliver French Fries
+  - id: O5
+    displayName: French Fries
     requirements:
     - food:
         id: French Fries
         kind: 1
         sellValue: 3
-      quantity: 2
+      quantity: 150
+    unlocks: []
+  - id: O6
+    displayName: Tomato Soup
+    requirements:
+    - food:
+        id: Tomato Soup
+        kind: 1
+        sellValue: 1
+      quantity: 220
+    unlocks: []
+  - id: O7
+    displayName: Loaded Fries
+    requirements:
+    - food:
+        id: Loaded Fries
+        kind: 1
+        sellValue: 1
+      quantity: 300
+    unlocks: []
+  - id: O8
+    displayName: Garden Lunch
+    requirements:
+    - food:
+        id: Garden Lunch
+        kind: 1
+        sellValue: 1
+      quantity: 400
     unlocks:
-    - category: demo
-      id: complete
-  seedOffers:
-  - cropId: Basil
-    displayName: Basil Seeds
-    price: 3
-    requiredUnlock:
-      category: seed_shop
-      id: Basil
+    - category: chapter
+      id: vegetable_complete
+  seedOffers: []
   farmableRegions:
   - id: Starter Fields
     displayName: Starter Fields
     minimumCell: {x: -5, y: -4}
     size: {x: 10, y: 9}
     initiallyRestored: 1
-    requiredUnlockCategory:
-    requiredUnlockId:
+    requiredUnlockCategory: 
+    requiredUnlockId: 
+    restorationUnlocks: []
+    price: 0
   - id: East Field
     displayName: East Field
     minimumCell: {x: 5, y: -4}
@@ -1073,8 +1129,8 @@ MonoBehaviour:
     minimumCell: {x: -9, y: -4}
     size: {x: 4, y: 9}
     initiallyRestored: 0
-    requiredUnlockCategory:
-    requiredUnlockId:
+    requiredUnlockCategory: 
+    requiredUnlockId: 
     restorationUnlocks: []
     price: 3
   - id: North Terrace
@@ -1082,8 +1138,8 @@ MonoBehaviour:
     minimumCell: {x: -5, y: 5}
     size: {x: 10, y: 4}
     initiallyRestored: 0
-    requiredUnlockCategory:
-    requiredUnlockId:
+    requiredUnlockCategory: 
+    requiredUnlockId: 
     restorationUnlocks: []
     price: 4
   - id: South Orchard
@@ -1091,8 +1147,8 @@ MonoBehaviour:
     minimumCell: {x: -5, y: -8}
     size: {x: 10, y: 4}
     initiallyRestored: 0
-    requiredUnlockCategory:
-    requiredUnlockId:
+    requiredUnlockCategory: 
+    requiredUnlockId: 
     restorationUnlocks: []
     price: 4
 --- !u!114 &200000003
@@ -1105,10 +1161,59 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 0d9c85675e37461c81ed3c35b9b5c38e, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.MarketPanel
   market: {fileID: 200000002}
   buildings: {fileID: 6002}
+--- !u!1 &362208086
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 362208088}
+  - component: {fileID: 362208087}
+  m_Layer: 0
+  m_Name: Belt Transport
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &362208087
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 362208086}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: acc71ebc5d8f3064982163180192d37d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Logistics.BeltTransportCoordinator
+  gridSystem: {fileID: 2002}
+  movementSpeed: 1
+  foodVisuals:
+  - foodId: apple
+    sprite: {fileID: 21300000, guid: 70e4291e9f63e444f9292ce8342dbd62, type: 3}
+--- !u!4 &362208088
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 362208086}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using CozyFoodFactory.Grid;
+using CozyFoodFactory.Logistics;
 using UnityEngine;
 
 namespace CozyFoodFactory.Buildings
@@ -15,6 +16,7 @@ namespace CozyFoodFactory.Buildings
         private GameObject directionIndicator;
         private GameObject portIndicatorsRoot;
         private GameObject visualRoot;
+        private readonly GameObject[] beltConnections = new GameObject[4];
         private string reason;
 
         public void SetReason(string message) => reason = message;
@@ -98,6 +100,46 @@ namespace CozyFoodFactory.Buildings
             foreach (SpriteRenderer renderer in
                      directionIndicator.GetComponentsInChildren<SpriteRenderer>())
                 renderer.color = color;
+        }
+
+        public void SetBeltConnections(int outgoingMask, int incomingMask,
+            float cellSize)
+        {
+            Sprite sprite = directionIndicator.transform.GetChild(0)
+                .GetComponent<SpriteRenderer>().sprite;
+            for (int index = 0; index < 4; index++)
+            {
+                if (beltConnections[index] == null)
+                {
+                    beltConnections[index] = new GameObject($"Preview connection {index}");
+                    beltConnections[index].transform.SetParent(transform, false);
+                    SpriteRenderer renderer = beltConnections[index]
+                        .AddComponent<SpriteRenderer>();
+                    renderer.sprite = sprite;
+                    renderer.sortingOrder = 76;
+                }
+                GameObject arm = beltConnections[index];
+                int bit = 1 << index;
+                arm.SetActive(((outgoingMask | incomingMask) & bit) != 0);
+                Vector2 side = (Vector2)((CozyFoodFactory.Logistics.GridDirection)index)
+                    .ToOffset();
+                arm.transform.position = transform.position +
+                    new Vector3(side.x * cellSize * 0.26f,
+                        side.y * cellSize * 0.26f, -0.015f);
+                arm.transform.rotation = Quaternion.identity;
+                arm.transform.localScale = index is 0 or 2
+                    ? new Vector3(cellSize * 0.15f, cellSize * 0.47f, 1f)
+                    : new Vector3(cellSize * 0.47f, cellSize * 0.15f, 1f);
+                arm.GetComponent<SpriteRenderer>().color = (outgoingMask & bit) != 0
+                    ? new Color(1f, 0.77f, 0.31f, 0.8f)
+                    : new Color(0.74f, 0.83f, 0.84f, 0.7f);
+            }
+        }
+
+        public void HideBeltConnections()
+        {
+            foreach (GameObject arm in beltConnections)
+                if (arm != null) arm.SetActive(false);
         }
 
         private void EnsureVisual(BuildingDefinition definition, float cellSize)

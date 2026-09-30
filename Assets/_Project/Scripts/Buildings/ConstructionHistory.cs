@@ -32,7 +32,8 @@ namespace CozyFoodFactory.Buildings
                     break;
                 case nameof(Harvester): result.harvester = new SavedHarvester
                     { outputs = Array.Empty<SavedFood>() }; break;
-                case nameof(Belt): result.belt = new SavedBelt(); break;
+                case nameof(Belt): result.belt = new SavedBelt
+                    { outputMask = source.belt?.outputMask ?? 0 }; break;
                 case nameof(Processor): result.processor = new SavedProcessor(); break;
                 case nameof(BasicMixer): result.mixer = new SavedMixer(); break;
                 case nameof(TradeBuilding):
@@ -85,7 +86,8 @@ namespace CozyFoodFactory.Buildings
             (item.x, item.y);
         public static bool Same(SavedBuilding a, SavedBuilding b) =>
             a.definitionId == b.definitionId && a.x == b.x && a.y == b.y &&
-            a.rotation == b.rotation && a.farmPlot?.cropId == b.farmPlot?.cropId;
+            a.rotation == b.rotation && a.farmPlot?.cropId == b.farmPlot?.cropId &&
+            a.belt?.outputMask == b.belt?.outputMask;
         public static bool Same(SavedPropertyConnection a, SavedPropertyConnection b) =>
             a.x == b.x && a.y == b.y && a.sourceX == b.sourceX &&
             a.sourceY == b.sourceY && a.property == b.property &&

@@ -15,6 +15,49 @@ namespace CozyFoodFactory.Tests.EditMode
             new("Dried Apple", FoodItemKind.ProcessedFood);
 
         [Test]
+        public void CampaignObjectives_ValidateSequenceIdsAndRequiredItems()
+        {
+            var first = new FoodOrder("first", "First",
+                new[] { new FoodOrderRequirement(Apple, 3) },
+                Array.Empty<UnlockKey>());
+            var second = new FoodOrder("second", "Second",
+                new[] { new FoodOrderRequirement(DriedApple, 2) },
+                Array.Empty<UnlockKey>());
+
+            Assert.That(CampaignObjectiveValidation.GetError(new[] { first, second }),
+                Is.Null);
+            Assert.That(CampaignObjectiveValidation.GetError(Array.Empty<FoodOrder>()),
+                Does.Contain("at least one"));
+            Assert.That(CampaignObjectiveValidation.GetError(new FoodOrder[] { first, null }),
+                Does.Contain("Objective 2 is missing"));
+
+            typeof(FoodOrder).GetField("id",
+                BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(second, "first");
+            Assert.That(CampaignObjectiveValidation.GetError(new[] { first, second }),
+                Does.Contain("duplicates objective ID"));
+        }
+
+        [Test]
+        public void CampaignObjectives_IdentifyMissingFoodAndInvalidQuantity()
+        {
+            var order = new FoodOrder("first", "First",
+                new[] { new FoodOrderRequirement(Apple, 3) },
+                Array.Empty<UnlockKey>());
+            var requirement = order.Requirements[0];
+            typeof(FoodOrderRequirement).GetField("food",
+                BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(requirement, null);
+            Assert.That(CampaignObjectiveValidation.GetError(new[] { order }),
+                Does.Contain("valid food item"));
+
+            typeof(FoodOrderRequirement).GetField("food",
+                BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(requirement, Apple);
+            typeof(FoodOrderRequirement).GetField("quantity",
+                BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(requirement, 0);
+            Assert.That(CampaignObjectiveValidation.GetError(new[] { order }),
+                Does.Contain("quantity greater than zero"));
+        }
+
+        [Test]
         public void RestoringEastFieldGrantsPotatoExactlyOnce()
         {
             var unlocks = new UnlockState();

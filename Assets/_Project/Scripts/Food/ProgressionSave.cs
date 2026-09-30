@@ -108,6 +108,9 @@ namespace CozyFoodFactory.Food
         }
 
         public static string DemoPath =>
+            Path.Combine(Application.persistentDataPath, "cozy-food-factory-chapter-1.json");
+
+        public static string LegacyDemoPath =>
             Path.Combine(Application.persistentDataPath, "cozy-food-factory-demo.json");
 
         public string ToJson() => JsonUtility.ToJson(Capture(), true);

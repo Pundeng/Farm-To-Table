@@ -208,6 +208,63 @@ namespace CozyFoodFactory.Food
         }
     }
 
+    // Reports Inspector authoring mistakes without changing order or save semantics.
+    public static class CampaignObjectiveValidation
+    {
+        public static string GetError(IReadOnlyList<FoodOrder> objectives)
+        {
+            if (objectives == null || objectives.Count == 0)
+                return "Add at least one main campaign objective.";
+
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            for (int index = 0; index < objectives.Count; index++)
+            {
+                FoodOrder objective = objectives[index];
+                string position = $"Objective {index + 1}";
+                if (objective == null)
+                    return $"{position} is missing. Remove the empty entry or fill it in.";
+                if (string.IsNullOrWhiteSpace(objective.Id))
+                    return $"{position} needs an ID.";
+                if (!ids.Add(objective.Id))
+                    return $"{position} duplicates objective ID '{objective.Id}'.";
+                if (string.IsNullOrWhiteSpace(objective.DisplayName))
+                    return $"{position} needs a display name.";
+                if (objective.Requirements == null || objective.Requirements.Count == 0)
+                    return $"{position} needs at least one required food item.";
+
+                var foods = new HashSet<FoodItemData>();
+                for (int requirementIndex = 0;
+                     requirementIndex < objective.Requirements.Count; requirementIndex++)
+                {
+                    FoodOrderRequirement requirement = objective.Requirements[requirementIndex];
+                    string location = $"{position}, requirement {requirementIndex + 1}";
+                    if (requirement?.Food == null || !requirement.Food.IsValid)
+                        return $"{location} needs a valid food item (ID, kind and sell value).";
+                    if (requirement.Quantity <= 0)
+                        return $"{location} needs a quantity greater than zero.";
+                    if (!foods.Add(requirement.Food))
+                        return $"{location} repeats the same food item.";
+                }
+
+                if (objective.Unlocks == null)
+                    return $"{position} needs an Unlocks array; use an empty array for no rewards.";
+                var unlocks = new HashSet<UnlockKey>();
+                foreach (UnlockKey unlock in objective.Unlocks)
+                {
+                    if (unlock == null || !unlocks.Add(unlock))
+                        return $"{position} has a missing or duplicate unlock.";
+                    try { unlock.Validate(); }
+                    catch (InvalidOperationException)
+                    {
+                        return $"{position} has an unlock without a category or ID.";
+                    }
+                }
+            }
+
+            return null;
+        }
+    }
+
     public sealed class FoodOrderProgress : IDisposable
     {
         private readonly MarketReceiver receiver;

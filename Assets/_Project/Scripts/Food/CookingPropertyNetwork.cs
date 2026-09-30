@@ -6,10 +6,10 @@ namespace CozyFoodFactory.Food
 {
     public enum CookingProperty
     {
-        Heat,
-        Moisture,
-        Time,
-        Air
+        Heat = 0,
+        Water = 1,
+        Time = 2,
+        Cold = 3
     }
 
     public enum PropertyConnectionKind

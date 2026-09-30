@@ -30,7 +30,9 @@ namespace CozyFoodFactory.Tests.EditMode
                 var copy = new BuildingGroupCopy(new[]
                 {
                     new BuildingGroupCopyItem(option, new Vector2Int(5, 6),
-                        BuildingRotation.Degrees90)
+                        BuildingRotation.Degrees90, outputMask:
+                            BeltCell.Bit(GridDirection.East) |
+                            BeltCell.Bit(GridDirection.North))
                 });
                 var library = new BlueprintLibrary(path);
                 Assert.That(library.TryAdd("Line", copy, out string error), Is.True, error);
@@ -43,6 +45,17 @@ namespace CozyFoodFactory.Tests.EditMode
                 Assert.That(layout.Items[0].CropId, Is.Null);
                 Assert.That(layout.Items[0].Rotation,
                     Is.EqualTo(BuildingRotation.Degrees90));
+                Assert.That(layout.Items[0].OutputMask,
+                    Is.EqualTo(BeltCell.Bit(GridDirection.East) |
+                        BeltCell.Bit(GridDirection.North)));
+                Assert.That(layout.RotateClockwise().Items[0].OutputMask,
+                    Is.EqualTo(BeltCell.Bit(GridDirection.South) |
+                        BeltCell.Bit(GridDirection.East)));
+                Assert.That(layout.TryMirrorHorizontal(out BuildingGroupCopy mirrored),
+                    Is.True);
+                Assert.That(mirrored.Items[0].OutputMask,
+                    Is.EqualTo(BeltCell.Bit(GridDirection.West) |
+                        BeltCell.Bit(GridDirection.North)));
                 // A fresh library instance models reopening after a restart.
                 var reopened = new BlueprintLibrary(path);
                 Assert.That(reopened.Records.Count, Is.EqualTo(1));
@@ -142,6 +155,30 @@ namespace CozyFoodFactory.Tests.EditMode
             Assert.That(history.RedoCount, Is.EqualTo(1));
             history.Record(empty.Difference(withBelt));
             Assert.That(history.RedoCount, Is.Zero);
+        }
+
+        [Test]
+        public void History_RecordsBeltConnectionChangeAsOneConstructionDelta()
+        {
+            static ConstructionLayout Layout(int mask) =>
+                ConstructionLayout.FromWorld(new FactoryWorldData
+                {
+                    buildings = new[] { new SavedBuilding
+                    {
+                        definitionId = nameof(Belt), x = 2, y = 3,
+                        rotation = BuildingRotation.Degrees90,
+                        belt = new SavedBelt { outputMask = mask }
+                    } }
+                });
+            ConstructionLayout straight = Layout(BeltCell.Bit(GridDirection.East));
+            ConstructionLayout branch = Layout(BeltCell.Bit(GridDirection.East) |
+                BeltCell.Bit(GridDirection.North));
+            ConstructionChange change = straight.Difference(branch);
+            Assert.That(change.IsEmpty, Is.False);
+            Assert.That(change.Before.Buildings.Length, Is.EqualTo(1));
+            Assert.That(change.After.Buildings[0].belt.outputMask,
+                Is.EqualTo(BeltCell.Bit(GridDirection.East) |
+                    BeltCell.Bit(GridDirection.North)));
         }
 
         [Test]

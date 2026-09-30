@@ -59,7 +59,7 @@ namespace CozyFoodFactory.Tests.EditMode
                         new UnlockKey(UnlockKey.RegionAccessCategory, "East"),
                         price: 1)
                 }, Unlocks);
-                Recipe = new ProcessingRecipe(Apple, CookingProperty.Air, DriedApple);
+                Recipe = new ProcessingRecipe(Apple, CookingProperty.Cold, DriedApple);
                 Saves = new ProgressionSaveService(Inventory, Orders, Unlocks, Shop, Regions,
                     Discoveries, new[] { Recipe }, Array.Empty<MixingRecipe>());
             }
@@ -272,7 +272,7 @@ namespace CozyFoodFactory.Tests.EditMode
                             state = ProcessorState.Processing,
                             input = SavedFood.From(source.Apple),
                             output = SavedFood.From(source.DriedApple),
-                            activeProperty = CookingProperty.Air,
+                            activeProperty = CookingProperty.Cold,
                             elapsedSeconds = 0.5f
                         }
                     },
@@ -287,7 +287,7 @@ namespace CozyFoodFactory.Tests.EditMode
                     new SavedPropertyConnection
                     {
                         x = 1, y = 4, sourceX = 0, sourceY = 4,
-                        property = CookingProperty.Air,
+                        property = CookingProperty.Cold,
                         kind = PropertyConnectionKind.Demand, units = 1
                     }
                 }
@@ -518,10 +518,10 @@ namespace CozyFoodFactory.Tests.EditMode
 
             var processor = new ProcessorProcess(new ProcessingRecipeCatalog(new[]
             {
-                new ProcessingRecipe(apple, CookingProperty.Air, dried)
+                new ProcessingRecipe(apple, CookingProperty.Cold, dried)
             }), 1f);
             processor.Restore(ProcessorState.Processing, apple,
-                CookingProperty.Air, dried, 0.5f);
+                CookingProperty.Cold, dried, 0.5f);
             Assert.That(processor.State, Is.EqualTo(ProcessorState.Processing));
             Assert.That(processor.ElapsedTime, Is.EqualTo(0.5f));
             Assert.That(processor.Advance(0.5f, true), Is.True);
@@ -556,9 +556,9 @@ namespace CozyFoodFactory.Tests.EditMode
             var network = new CookingPropertyNetwork();
             Vector2Int source = Vector2Int.zero;
             Vector2Int disconnected = new(5, 0);
-            Assert.That(network.TryAddSource(source, CookingProperty.Air, 4), Is.True);
+            Assert.That(network.TryAddSource(source, CookingProperty.Cold, 4), Is.True);
             Assert.That(network.TryRestoreConnection(new PropertyConnection(disconnected,
-                source, CookingProperty.Air, PropertyConnectionKind.Pipe)), Is.True);
+                source, CookingProperty.Cold, PropertyConnectionKind.Pipe)), Is.True);
             Assert.That(network.TryGetConnection(disconnected, out PropertyConnection restored),
                 Is.True);
             Assert.That(restored.SourceCell, Is.EqualTo(source));

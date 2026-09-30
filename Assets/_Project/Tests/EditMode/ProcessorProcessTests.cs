@@ -289,7 +289,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 var sourceCell = new Vector2Int(-6, -4);
                 var sourceSetup = new PropertySourceSetup
                 {
-                    property = CookingProperty.Air,
+                    property = CookingProperty.Cold,
                     cell = sourceCell,
                     capacity = 4
                 };
@@ -305,7 +305,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 var farmApple = new FoodItemData("apple", FoodItemKind.RawIngredient);
                 var catalog = new ProcessingRecipeCatalog(new[]
                 {
-                    new ProcessingRecipe(farmApple, CookingProperty.Air, DriedApple)
+                    new ProcessingRecipe(farmApple, CookingProperty.Cold, DriedApple)
                 });
                 processor.Initialize(placement, coordinator, supply, catalog, 1f);
 
@@ -338,14 +338,14 @@ namespace CozyFoodFactory.Tests.EditMode
                 Assert.That(connected.AvailableCapacity, Is.EqualTo(3));
                 Assert.That(supply.TryGetProcessorSupply(processor.PropertyCell,
                     out CookingProperty property), Is.True);
-                Assert.That(property, Is.EqualTo(CookingProperty.Air));
+                Assert.That(property, Is.EqualTo(CookingProperty.Cold));
                 supply.TogglePanel();
                 Assert.That(supply.IsVisible, Is.True);
                 supply.TogglePanel();
                 Assert.That(supply.IsVisible, Is.False);
                 Assert.That(supply.TryGetProcessorSupply(processor.PropertyCell,
                     out property), Is.True);
-                Assert.That(processor.SupplyMessage, Does.Contain("Air supplied"));
+                Assert.That(processor.SupplyMessage, Does.Contain("Cold supplied"));
                 Assert.That(processor.TryAcceptItem(farmApple, GridDirection.East), Is.True);
                 Assert.That(processor.State, Is.EqualTo(ProcessorState.Processing));
 
@@ -396,14 +396,14 @@ namespace CozyFoodFactory.Tests.EditMode
         public void UniqueRecipe_ProcessesAndHoldsOutputUntilTaken()
         {
             var process = CreateProcess(new ProcessingRecipe(Apple,
-                CookingProperty.Air, DriedApple));
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, true), Is.True);
+                CookingProperty.Cold, DriedApple));
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, true), Is.True);
             Assert.That(process.State, Is.EqualTo(ProcessorState.Processing));
             Assert.That(process.Advance(0.5f, true), Is.False);
             Assert.That(process.Advance(0.5f, true), Is.True);
             Assert.That(process.State, Is.EqualTo(ProcessorState.WaitingForOutput));
             Assert.That(process.PeekOutput(), Is.EqualTo(DriedApple));
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, true), Is.False);
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, true), Is.False);
             Assert.That(process.TryTakeOutput(out FoodItemData output), Is.True);
             Assert.That(output, Is.EqualTo(DriedApple));
             Assert.That(process.State, Is.EqualTo(ProcessorState.Idle));
@@ -412,17 +412,17 @@ namespace CozyFoodFactory.Tests.EditMode
         [Test]
         public void InvalidOrAmbiguousCombination_DoesNotAcceptFood()
         {
-            var valid = new ProcessingRecipe(Apple, CookingProperty.Air, DriedApple);
+            var valid = new ProcessingRecipe(Apple, CookingProperty.Cold, DriedApple);
             var catalog = new ProcessingRecipeCatalog(new[] { valid, valid });
-            Assert.That(catalog.Find(Apple, CookingProperty.Air, out _),
+            Assert.That(catalog.Find(Apple, CookingProperty.Cold, out _),
                 Is.EqualTo(ProcessingRecipeMatch.Ambiguous));
             var process = new ProcessorProcess(catalog, 1f);
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, true), Is.False);
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, true), Is.False);
             Assert.That(process.State, Is.EqualTo(ProcessorState.Idle));
 
             process = CreateProcess(valid);
             Assert.That(process.TryAccept(Apple, CookingProperty.Heat, true), Is.False);
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, false), Is.False);
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, false), Is.False);
             Assert.That(process.State, Is.EqualTo(ProcessorState.Idle));
         }
 
@@ -430,8 +430,8 @@ namespace CozyFoodFactory.Tests.EditMode
         public void LostSupply_PausesProcessingWithoutLosingInput()
         {
             var process = CreateProcess(new ProcessingRecipe(Apple,
-                CookingProperty.Air, DriedApple));
-            Assert.That(process.TryAccept(Apple, CookingProperty.Air, true), Is.True);
+                CookingProperty.Cold, DriedApple));
+            Assert.That(process.TryAccept(Apple, CookingProperty.Cold, true), Is.True);
             Assert.That(process.Advance(0.5f, true), Is.False);
             Assert.That(process.Advance(5f, false), Is.False);
             Assert.That(process.State, Is.EqualTo(ProcessorState.Processing));
@@ -443,7 +443,7 @@ namespace CozyFoodFactory.Tests.EditMode
         public void BeltFlow_RetainsInvalidInputAndBlockedFinishedOutput()
         {
             var process = CreateProcess(new ProcessingRecipe(Apple,
-                CookingProperty.Air, DriedApple));
+                CookingProperty.Cold, DriedApple));
             var system = new BeltTransportSystem(1f);
             var receiver = new ProcessReceiver(process);
             var source = new ProcessSource(process);
@@ -491,11 +491,11 @@ namespace CozyFoodFactory.Tests.EditMode
             public bool AllowsConcurrentInput => false;
             public bool CanAcceptItem(ITransportItem item, GridDirection direction) =>
                 direction == GridDirection.East && item is FoodItemData food &&
-                process.Evaluate(food, CookingProperty.Air, true) ==
+                process.Evaluate(food, CookingProperty.Cold, true) ==
                 ProcessingRecipeMatch.Unique;
             public bool TryAcceptItem(ITransportItem item, GridDirection direction) =>
                 CanAcceptItem(item, direction) &&
-                process.TryAccept((FoodItemData)item, CookingProperty.Air, true);
+                process.TryAccept((FoodItemData)item, CookingProperty.Cold, true);
         }
 
         private sealed class ProcessSource : IItemOutputSource

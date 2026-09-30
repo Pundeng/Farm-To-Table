@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace CozyFoodFactory.Logistics
@@ -11,6 +12,7 @@ namespace CozyFoodFactory.Logistics
         private readonly List<BeltCell> orderedBelts = new();
         private readonly List<IItemOutputSource> outputSources = new();
         private readonly List<IItemOutputPairSource> outputPairs = new();
+        private readonly Dictionary<Vector2Int, int> nextMachineInput = new();
 
         public BeltTransportSystem(float movementSpeed)
         {
@@ -52,6 +54,7 @@ namespace CozyFoodFactory.Logistics
             // Rebuilding intentionally discards the item on this belt.
             belt.TakeItem();
             beltsByCell.Remove(belt.Cell);
+            nextMachineInput.Remove(belt.Cell);
             orderedBelts.Remove(belt);
             return true;
         }
@@ -143,72 +146,131 @@ namespace CozyFoodFactory.Logistics
 
         private void TransferReadyItems()
         {
-            // Decisions use the pre-transfer occupancy snapshot so a chain cannot cascade
-            // differently based on component or dictionary iteration order.
-            var beltTransfers = new List<(BeltCell Source, BeltCell Destination)>();
-            var receiverTransfers = new List<(BeltCell Source, IItemInputReceiver Destination)>();
+            // All candidates observe pre-transfer occupancy. Contended belt inputs are
+            // resolved by the destination cursor, then rejected splitters can retry.
+            var beltTransfers = new List<(BeltCell Source, BeltCell Destination,
+                GridDirection Direction)>();
+            var receiverTransfers = new List<(BeltCell Source, IItemInputReceiver Destination,
+                GridDirection Direction)>();
             var reservedDestinations = new HashSet<Vector2Int>();
             var reservedReceiverGroups = new HashSet<object>();
+            var acceptedSources = new HashSet<BeltCell>();
+            var attempted = new Dictionary<BeltCell, int>();
 
-            foreach (BeltCell source in orderedBelts)
+            for (int pass = 0; pass < 4; pass++)
             {
-                if (!source.HasItem || source.Item.Progress < 1f)
+                var proposals = new Dictionary<BeltCell,
+                    List<(BeltCell Source, GridDirection Direction)>>();
+                bool anyProposal = false;
+                foreach (BeltCell source in orderedBelts)
                 {
-                    continue;
-                }
+                    if (acceptedSources.Contains(source) || !source.HasItem ||
+                        source.Item.Progress < 1f) continue;
 
-                if (beltsByCell.TryGetValue(source.OutputCell, out BeltCell beltDestination) &&
-                    beltDestination.OutputCell != source.Cell &&
-                    beltDestination.CanAccept &&
-                    reservedDestinations.Add(beltDestination.Cell))
-                {
-                    beltTransfers.Add((source, beltDestination));
-                    continue;
+                    int tried = attempted.TryGetValue(source, out int mask) ? mask : 0;
+                    for (int offset = 0; offset < 4; offset++)
+                    {
+                        GridDirection direction = (GridDirection)
+                            ((source.NextOutputIndex + offset) & 3);
+                        int bit = BeltCell.Bit(direction);
+                        if ((source.OutputMask & bit) == 0 || (tried & bit) != 0)
+                            continue;
+                        tried |= bit;
+                        Vector2Int target = source.Cell + direction.ToOffset();
+                        if (beltsByCell.TryGetValue(target, out BeltCell belt) &&
+                            belt.CanAccept && !reservedDestinations.Contains(target) &&
+                            !belt.HasOutput(Opposite(direction)))
+                        {
+                            if (!proposals.TryGetValue(belt, out var contenders))
+                            {
+                                contenders = new List<(BeltCell, GridDirection)>();
+                                proposals.Add(belt, contenders);
+                            }
+                            contenders.Add((source, direction));
+                            anyProposal = true;
+                            break;
+                        }
+                        if (receiversByCell.TryGetValue(target,
+                                out IItemInputReceiver receiver) &&
+                            receiver.CanAcceptItem(source.Item.Item, direction) &&
+                            (receiver.AllowsConcurrentInput ||
+                                !reservedDestinations.Contains(receiver.InputCell)) &&
+                            (receiver is not IItemInputReservationGroup group ||
+                                !reservedReceiverGroups.Contains(group.InputReservationKey)))
+                        {
+                            if (!receiver.AllowsConcurrentInput)
+                                reservedDestinations.Add(receiver.InputCell);
+                            if (receiver is IItemInputReservationGroup reservedGroup)
+                                reservedReceiverGroups.Add(reservedGroup.InputReservationKey);
+                            receiverTransfers.Add((source, receiver, direction));
+                            acceptedSources.Add(source);
+                            anyProposal = true;
+                            break;
+                        }
+                    }
+                    attempted[source] = tried;
                 }
-
-                if (receiversByCell.TryGetValue(
-                        source.OutputCell,
-                        out IItemInputReceiver receiverDestination) &&
-                    receiverDestination.CanAcceptItem(source.Item.Item, source.Direction) &&
-                    (receiverDestination.AllowsConcurrentInput ||
-                        reservedDestinations.Add(receiverDestination.InputCell)) &&
-                    (receiverDestination is not IItemInputReservationGroup group ||
-                        reservedReceiverGroups.Add(group.InputReservationKey)))
+                foreach (KeyValuePair<BeltCell,
+                             List<(BeltCell Source, GridDirection Direction)>> proposal in proposals)
                 {
-                    receiverTransfers.Add((source, receiverDestination));
+                    BeltCell destination = proposal.Key;
+                    (BeltCell Source, GridDirection Direction) winner = proposal.Value
+                        .OrderBy(candidate =>
+                            (((int)candidate.Direction - destination.NextInputIndex) + 4) & 3)
+                        .ThenBy(candidate => candidate.Source.Cell.y)
+                        .ThenBy(candidate => candidate.Source.Cell.x).First();
+                    beltTransfers.Add((winner.Source, destination, winner.Direction));
+                    acceptedSources.Add(winner.Source);
+                    reservedDestinations.Add(destination.Cell);
                 }
+                if (!anyProposal) break;
             }
 
-            foreach ((BeltCell source, BeltCell destination) in beltTransfers)
+            foreach ((BeltCell source, BeltCell destination, GridDirection direction)
+                     in beltTransfers)
             {
                 TransportedItem item = source.TakeItem();
-                destination.TryAccept(item, source.Direction);
+                if (!destination.TryAccept(item, direction))
+                    throw new InvalidOperationException("A reserved belt changed during transfer.");
+                source.AdvanceOutputCursor(direction);
+                destination.AdvanceInputCursor(direction);
             }
 
-            foreach ((BeltCell source, IItemInputReceiver destination) in receiverTransfers)
+            foreach ((BeltCell source, IItemInputReceiver destination,
+                     GridDirection direction) in receiverTransfers)
             {
                 ITransportItem item = source.Item.Item;
-                if (!destination.TryAcceptItem(item, source.Direction))
+                if (!destination.TryAcceptItem(item, direction))
                 {
                     throw new InvalidOperationException(
                         "An item input receiver changed during a deterministic transfer.");
                 }
 
                 source.TakeItem();
+                source.AdvanceOutputCursor(direction);
             }
         }
 
+        private static GridDirection Opposite(GridDirection direction) =>
+            (GridDirection)(((int)direction + 2) & 3);
+
         private void TransferSourceOutputs()
         {
-            foreach (IItemOutputSource source in outputSources)
+            foreach (BeltCell destination in orderedBelts)
             {
-                if (!source.HasOutput ||
-                    !beltsByCell.TryGetValue(source.OutputCell, out BeltCell destination) ||
-                    !destination.CanAccept)
-                {
-                    continue;
-                }
-
+                if (!destination.CanAccept) continue;
+                int cursor = nextMachineInput.TryGetValue(destination.Cell,
+                    out int value) ? value : 0;
+                IItemOutputSource source = outputSources
+                    .Where(candidate => candidate.HasOutput &&
+                        candidate.OutputCell == destination.Cell &&
+                        candidate.PeekOutput() != null)
+                    .OrderBy(candidate =>
+                        (((int)candidate.OutputDirection - cursor) + 4) & 3)
+                    .ThenBy(candidate => candidate.GetType().FullName,
+                        StringComparer.Ordinal)
+                    .FirstOrDefault();
+                if (source == null) continue;
                 ITransportItem pendingItem = source.PeekOutput();
                 if (pendingItem == null || !source.TryTakeOutput(out ITransportItem takenItem))
                 {
@@ -221,6 +283,8 @@ namespace CozyFoodFactory.Logistics
                     throw new InvalidOperationException(
                         "An item output source changed during a deterministic transfer.");
                 }
+                nextMachineInput[destination.Cell] =
+                    ((int)source.OutputDirection + 1) & 3;
             }
         }
 

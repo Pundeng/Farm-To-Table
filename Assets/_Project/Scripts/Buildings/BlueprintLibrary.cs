@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using CozyFoodFactory.Food;
+using CozyFoodFactory.Logistics;
 using UnityEngine;
 
 namespace CozyFoodFactory.Buildings
@@ -33,6 +34,7 @@ namespace CozyFoodFactory.Buildings
         public int y;
         public BuildingRotation rotation;
         public string cropId;
+        public int outputMask;
     }
 
     [Serializable]
@@ -96,7 +98,8 @@ namespace CozyFoodFactory.Buildings
                 {
                     definitionId = item.Option.Definition.Id,
                     x = item.Offset.x, y = item.Offset.y,
-                    rotation = item.Rotation, cropId = item.CropId
+                    rotation = item.Rotation, cropId = item.CropId,
+                    outputMask = item.OutputMask
                 }).ToArray(),
                 connections = group.PropertyItems.Select(item => new BlueprintConnection
                 {
@@ -162,9 +165,15 @@ namespace CozyFoodFactory.Buildings
                 // JsonUtility restores an omitted string as empty on some Unity versions.
                 if (!string.IsNullOrEmpty(saved.cropId) &&
                     saved.definitionId != nameof(FarmPlot)) return false;
+                if (saved.outputMask < 0 || saved.outputMask > BeltCell.AllDirections ||
+                    saved.outputMask != 0 &&
+                        (saved.definitionId != nameof(Belt) ||
+                         (saved.outputMask & BeltCell.Bit(
+                             saved.rotation.ToGridDirection())) == 0)) return false;
                 items.Add(new BuildingGroupCopyItem(option,
                     new Vector2Int(saved.x, saved.y), saved.rotation,
-                    cropId: string.IsNullOrEmpty(saved.cropId) ? null : saved.cropId));
+                    cropId: string.IsNullOrEmpty(saved.cropId) ? null : saved.cropId,
+                    outputMask: saved.outputMask));
             }
             var connections = new List<PropertyConnection>();
             foreach (BlueprintConnection saved in record.connections)
