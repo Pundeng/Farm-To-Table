@@ -2,6 +2,12 @@
 
 Design proposal, 2026-09-29. No content or balance in the Unity project is changed by this document. **IMPLEMENTED NOW** means present in inspected code or serialized Demo data; it does not claim Play Mode verification. **DOCUMENTED / PLANNED** means described by the GDD without matching current Demo content. **NEW PROPOSAL** means a design choice here, including every objective after the existing five. Counts and barter terms are playtest starting points, not final balance.
 
+**Historical snapshot:** this proposal predates the implemented O1-O10 Chapter 1
+campaign. Its audit, objective alternatives, and proposed trades are not current
+campaign requirements. See [ARCHITECTURE.md](ARCHITECTURE.md) and the opening
+Chapter 1 section of [COZY_FOOD_FACTORY_GDD.md](COZY_FOOD_FACTORY_GDD.md) for
+the active sequence.
+
 ## 1. Current Game Audit
 
 ### Implemented

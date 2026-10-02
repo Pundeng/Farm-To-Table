@@ -48,6 +48,8 @@ namespace CozyFoodFactory.Food
         private string pipePreviewReason;
         private readonly bool debugTools;
         private readonly Func<CookingProperty, bool> sourceAvailable;
+        private readonly Func<Vector2Int, bool> cellOwned;
+        private readonly Func<Vector2Int, string> ownershipFailure;
         private Tool tool;
         private bool isVisible;
         private int selectedSourceIndex;
@@ -60,10 +62,14 @@ namespace CozyFoodFactory.Food
             GridOccupancy occupancy, Transform parent,
             IReadOnlyList<PropertySourceSetup> setups, bool debugTools = true,
             PropertyVisualDefinition visualDefinition = null,
-            Func<CookingProperty, bool> sourceAvailable = null)
+            Func<CookingProperty, bool> sourceAvailable = null,
+            Func<Vector2Int, bool> cellOwned = null,
+            Func<Vector2Int, string> ownershipFailure = null)
         {
             this.debugTools = debugTools;
             this.sourceAvailable = sourceAvailable;
+            this.cellOwned = cellOwned;
+            this.ownershipFailure = ownershipFailure;
             this.grid = grid;
             this.hover = hover;
             this.occupancy = occupancy;
@@ -76,26 +82,7 @@ namespace CozyFoodFactory.Food
                 return;
             }
 
-            foreach (PropertySourceSetup setup in setups)
-            {
-                if (setup == null || !Reserve(setup.cell, "PropertySource",
-                        out BuildingPlacement reservation))
-                {
-                    Debug.LogWarning("A property source could not reserve its grid cell.");
-                    continue;
-                }
-
-                if (!network.TryAddSource(setup.cell, setup.property, setup.capacity))
-                {
-                    occupancy.Remove(reservation);
-                    reservations.Remove(setup.cell);
-                    Debug.LogWarning($"Invalid property source at {setup.cell}.");
-                    continue;
-                }
-
-                sources.Add(setup.cell);
-                CreateVisual(setup.cell);
-            }
+            AddSources(setups);
         }
 
         public bool IsActive => tool != Tool.None;
@@ -121,6 +108,58 @@ namespace CozyFoodFactory.Food
                     kind = connection.Kind,
                     units = connection.Units
                 }).ToArray();
+
+        public PropertySourceSetup[] CaptureSources() => sources.Select(cell =>
+        {
+            network.TryGetConnection(cell, out PropertyConnection source);
+            network.TryGetStatus(cell, out PropertySupplyStatus status);
+            return new PropertySourceSetup
+            {
+                cell = cell,
+                property = source.Property,
+                capacity = status.Capacity
+            };
+        }).ToArray();
+
+        public void ResetSources(IEnumerable<PropertySourceSetup> setups)
+        {
+            foreach (BuildingPlacement reservation in reservations.Values.ToArray())
+                occupancy.Remove(reservation);
+            foreach (GameObject visual in visuals.Values.ToArray())
+                if (visual != null) DestroyVisual(visual);
+            foreach (GameObject visual in processorPortVisuals.Values.ToArray())
+                if (visual != null) DestroyVisual(visual);
+            network.Clear();
+            reservations.Clear();
+            visuals.Clear();
+            processorPortVisuals.Clear();
+            processorPorts.Clear();
+            sources.Clear();
+            AddSources(setups);
+        }
+
+        public void AddSources(IEnumerable<PropertySourceSetup> setups)
+        {
+            if (setups == null) throw new ArgumentNullException(nameof(setups));
+            foreach (PropertySourceSetup setup in setups)
+            {
+                if (setup == null || !Reserve(setup.cell, "PropertySource",
+                        out BuildingPlacement reservation))
+                {
+                    Debug.LogWarning("A generated Property Source could not reserve its cell.");
+                    continue;
+                }
+                if (!network.TryAddSource(setup.cell, setup.property, setup.capacity))
+                {
+                    occupancy.Remove(reservation);
+                    reservations.Remove(setup.cell);
+                    Debug.LogWarning($"Invalid generated Property Source at {setup.cell}.");
+                    continue;
+                }
+                sources.Add(setup.cell);
+                CreateVisual(setup.cell);
+            }
+        }
 
         public void RestoreWorldConnections(IReadOnlyList<SavedPropertyConnection> saved)
         {
@@ -181,7 +220,7 @@ namespace CozyFoodFactory.Food
             var valid = new bool[cells.Count];
             CookingPropertyNetwork preview = network.CopyForPreview();
             for (int index = 0; index < cells.Count; index++)
-                valid[index] = occupancy.CanPlace(cells[index], Vector2Int.one,
+                valid[index] = IsOwned(cells[index]) && occupancy.CanPlace(cells[index], Vector2Int.one,
                         BuildingRotation.Degrees0) &&
                         HasAvailableSelectedSource() &&
                         preview.TryAddPipe(cells[index], sources[selectedSourceIndex]);
@@ -258,7 +297,8 @@ namespace CozyFoodFactory.Food
             {
                 Vector2Int cell = anchor + item.Offset;
                 if (!targetCells.Add(cell) || buildingCells.Contains(cell) ||
-                    !occupancy.CanPlace(cell, Vector2Int.one, BuildingRotation.Degrees0))
+                    !IsOwned(cell) || !occupancy.CanPlace(cell, Vector2Int.one,
+                        BuildingRotation.Degrees0))
                 {
                     ordered = null;
                     return false;
@@ -533,7 +573,9 @@ namespace CozyFoodFactory.Food
                     : new Color(1f, 0.25f, 0.2f, 0.7f);
                 renderer.sortingOrder = 70;
                 if (!valid[index])
-                    pipePreviewReason = occupancy.CanPlace(cell, Vector2Int.one,
+                    pipePreviewReason = !IsOwned(cell)
+                        ? GetOwnershipFailure(cell)
+                        : occupancy.CanPlace(cell, Vector2Int.one,
                             BuildingRotation.Degrees0)
                         ? "Start at a Collector or connected Pipe; keep one Property Source."
                         : "Cannot overlap another building.";
@@ -551,7 +593,8 @@ namespace CozyFoodFactory.Food
         {
             if (!Reserve(cell, kind, out BuildingPlacement reservation))
             {
-                message = $"Cell {cell} is occupied.";
+                message = !IsOwned(cell) ? GetOwnershipFailure(cell) :
+                    $"Cell {cell} is occupied.";
                 return false;
             }
 
@@ -703,6 +746,11 @@ namespace CozyFoodFactory.Food
         private bool Reserve(Vector2Int cell, string id,
             out BuildingPlacement reservation)
         {
+            if (id != "PropertySource" && !IsOwned(cell))
+            {
+                reservation = null;
+                return false;
+            }
             if (!occupancy.TryRegister(id, cell, Vector2Int.one,
                     BuildingRotation.Degrees0, out reservation))
             {
@@ -713,6 +761,11 @@ namespace CozyFoodFactory.Food
             return true;
         }
 
+        private bool IsOwned(Vector2Int cell) => cellOwned?.Invoke(cell) ?? true;
+
+        private string GetOwnershipFailure(Vector2Int cell) =>
+            ownershipFailure?.Invoke(cell) ?? "Purchase this territory before building here.";
+
         private void CreateVisual(Vector2Int cell)
         {
             PropertyConnection connection = GetConnection(cell);
@@ -721,7 +774,7 @@ namespace CozyFoodFactory.Food
             visual.transform.position = grid.GridToWorld(cell) + new Vector3(0f, 0f, -0.02f);
             float size = connection.Kind switch
             {
-                PropertyConnectionKind.Source => 0.85f,
+                PropertyConnectionKind.Source => 0.97f,
                 PropertyConnectionKind.Collector => 0.65f,
                 PropertyConnectionKind.Pipe => 0.42f,
                 _ => 0.68f

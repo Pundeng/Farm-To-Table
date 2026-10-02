@@ -7,11 +7,12 @@ namespace CozyFoodFactory.Food
 {
     public sealed class FarmPlotPlacementBehavior : MonoBehaviour, IBuildingPlacementBehavior
     {
-        private RegionState configuredRegions;
+        private TerritorySystem configuredTerritories;
 
-        public void Configure(RegionState regions)
+        public void Configure(TerritorySystem territories)
         {
-            configuredRegions = regions ?? throw new ArgumentNullException(nameof(regions));
+            configuredTerritories = territories ??
+                throw new ArgumentNullException(nameof(territories));
         }
 
         public bool CanPlace(
@@ -19,9 +20,9 @@ namespace CozyFoodFactory.Food
             Vector2Int footprint,
             BuildingRotation rotation)
         {
-            RegionState regions = configuredRegions ??
-                GetComponent<BuildingPlacementController>()?.Market?.Regions;
-            return footprint == Vector2Int.one && regions?.CanFarm(anchorCell) == true;
+            TerritorySystem territories = configuredTerritories ??
+                GetComponent<BuildingPlacementController>()?.Market?.Territories;
+            return footprint == Vector2Int.one && territories?.IsOwnedCell(anchorCell) == true;
         }
 
         public void InitializePlacedBuilding(GameObject buildingObject, BuildingPlacement placement)

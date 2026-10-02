@@ -60,7 +60,7 @@ namespace CozyFoodFactory.Tests.EditMode
                         price: 1)
                 }, Unlocks);
                 Recipe = new ProcessingRecipe(Apple, CookingProperty.Cold, DriedApple);
-                Saves = new ProgressionSaveService(Inventory, Orders, Unlocks, Shop, Regions,
+                Saves = new ProgressionSaveService(Inventory, Orders, Unlocks, Shop,
                     Discoveries, new[] { Recipe }, Array.Empty<MixingRecipe>());
             }
 
@@ -293,14 +293,14 @@ namespace CozyFoodFactory.Tests.EditMode
                 }
             };
             var saves = new ProgressionSaveService(source.Inventory, source.Orders,
-                source.Unlocks, source.Shop, source.Regions, source.Discoveries,
+                source.Unlocks, source.Shop, source.Discoveries,
                 new[] { source.Recipe }, Array.Empty<MixingRecipe>(), () => world);
 
             string json = saves.ToJson();
             var parsed = JsonUtility.FromJson<ProgressionSaveData>(json);
             FactoryWorldSnapshotValidator.RestoreSerializedNulls(parsed.world);
             FactoryWorldSnapshotValidator.Validate(parsed.world);
-            Assert.That(parsed.version, Is.EqualTo(2));
+            Assert.That(parsed.version, Is.EqualTo(6));
             Assert.That(parsed.world.buildings, Has.Length.EqualTo(5));
             Assert.That(parsed.world.buildings[2].belt.progress, Is.EqualTo(0.75f));
             Assert.That(parsed.world.buildings[3].processor.elapsedSeconds, Is.EqualTo(0.5f));
@@ -364,7 +364,7 @@ namespace CozyFoodFactory.Tests.EditMode
             {
                 File.WriteAllText(path, original);
                 var failing = new ProgressionSaveService(session.Inventory,
-                    session.Orders, session.Unlocks, session.Shop, session.Regions,
+                    session.Orders, session.Unlocks, session.Shop,
                     session.Discoveries, new[] { session.Recipe },
                     Array.Empty<MixingRecipe>(),
                     () => throw new InvalidOperationException(
@@ -378,6 +378,110 @@ namespace CozyFoodFactory.Tests.EditMode
                 if (File.Exists(path)) File.Delete(path);
             }
         }
+
+        [Test]
+        public void FiveSaveSlotsKeepIndependentProgressionAndRejectOldWorldFormat()
+        {
+            string directory = Path.Combine(Path.GetTempPath(),
+                $"cozy-food-slots-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(directory);
+            try
+            {
+                string[] paths = Enumerable.Range(1, ProgressionSaveService.SlotCount)
+                    .Select(slot => ProgressionSaveService.SlotPath(directory, slot))
+                    .ToArray();
+                Assert.That(paths.Distinct().Count(), Is.EqualTo(5));
+                Assert.Throws<ArgumentOutOfRangeException>(() =>
+                    ProgressionSaveService.SlotPath(directory, 0));
+
+                using var first = new Session();
+                using var second = new Session();
+                first.Receiver.TryAcceptItem(first.Apple, GridDirection.East);
+                second.Receiver.TryAcceptItem(second.Apple, GridDirection.East);
+                second.Receiver.TryAcceptItem(second.Apple, GridDirection.East);
+                second.Receiver.TryAcceptItem(second.DriedApple, GridDirection.West);
+                FactoryWorldData firstWorld = SlotWorld(101, first.Apple, "trade-one");
+                FactoryWorldData secondWorld = SlotWorld(202, second.DriedApple, "trade-two");
+                ProgressionSaveService firstSave = CreateSlotSave(first, firstWorld);
+                ProgressionSaveService secondSave = CreateSlotSave(second, secondWorld);
+                Assert.That(firstSave.TrySave(paths[0], out string error), Is.True, error);
+                Assert.That(secondSave.TrySave(paths[1], out error), Is.True, error);
+
+                Assert.That(firstSave.TryReadValidated(paths[0], out ProgressionSaveData firstData,
+                    out error), Is.True, error);
+                Assert.That(secondSave.TryReadValidated(paths[1], out ProgressionSaveData secondData,
+                    out error), Is.True, error);
+                Assert.That(firstData.world.worldSeed, Is.EqualTo(101));
+                Assert.That(secondData.world.worldSeed, Is.EqualTo(202));
+                Assert.That(firstData.world.purchasedTerritories.Select(item => item.Coordinate),
+                    Is.EqualTo(new[] { new Vector2Int(0, -1) }));
+                Assert.That(secondData.world.purchasedTerritories.Select(item => item.Coordinate),
+                    Is.EqualTo(new[] { new Vector2Int(1, -1), new Vector2Int(0, -1) }));
+                Assert.That(firstData.world.buildings[0].belt.item.id, Is.EqualTo(first.Apple.Id));
+                Assert.That(secondData.world.buildings[0].belt.item.id,
+                    Is.EqualTo(second.DriedApple.Id));
+                Assert.That(firstData.world.buildings[1].tradeBuilding.tradeId,
+                    Is.EqualTo("trade-one"));
+                Assert.That(secondData.world.buildings[1].tradeBuilding.tradeId,
+                    Is.EqualTo("trade-two"));
+                Assert.That(firstData.world.buildings[1].tradeBuilding.bufferedInput,
+                    Is.EqualTo(1));
+                Assert.That(secondData.world.buildings[1].tradeBuilding.pendingOutput,
+                    Is.EqualTo(4));
+                Assert.That(firstData.activeOrderId, Is.EqualTo("apple-order"));
+                Assert.That(secondData.activeOrderId, Is.EqualTo("dried-order"));
+
+                using var restoredFirst = new Session();
+                using var restoredSecond = new Session();
+                Assert.That(restoredFirst.Saves.TryLoad(paths[0], out error), Is.True, error);
+                Assert.That(restoredSecond.Saves.TryLoad(paths[1], out error), Is.True, error);
+                Assert.That(restoredFirst.Inventory.Currency, Is.EqualTo(1));
+                Assert.That(restoredFirst.Inventory.GetDeliveredCount(first.Apple), Is.EqualTo(1));
+                Assert.That(restoredSecond.Inventory.Currency, Is.EqualTo(4));
+                Assert.That(restoredSecond.Inventory.GetDeliveredCount(second.DriedApple), Is.EqualTo(1));
+                Assert.That(restoredSecond.Inventory.GetDeliveredCount(second.Apple), Is.EqualTo(2));
+
+                ProgressionSaveData oldWorld = JsonUtility.FromJson<ProgressionSaveData>(
+                    File.ReadAllText(paths[0]));
+                oldWorld.version = 5;
+                string incompatible = JsonUtility.ToJson(oldWorld);
+                File.WriteAllText(paths[0], incompatible);
+                using var destination = new Session();
+                Assert.That(destination.Saves.TryLoad(paths[0], out error), Is.False);
+                Assert.That(error, Does.Contain("previous single-parcel map"));
+                Assert.That(File.ReadAllText(paths[0]), Is.EqualTo(incompatible));
+                Assert.That(destination.Inventory.Currency, Is.Zero);
+            }
+            finally
+            {
+                if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            }
+        }
+
+        private static ProgressionSaveService CreateSlotSave(Session session,
+            FactoryWorldData world) => new(session.Inventory, session.Orders,
+                session.Unlocks, session.Shop, session.Discoveries,
+                new[] { session.Recipe }, Array.Empty<MixingRecipe>(), () => world);
+
+        private static FactoryWorldData SlotWorld(int seed, FoodItemData item,
+            string tradeId) => new()
+        {
+            worldSeed = seed,
+            territoryPurchaseCount = seed == 101 ? 0 : 1,
+            purchasedTerritories = seed == 101
+                ? new[] { new SavedTerritory(new Vector2Int(0, -1)) }
+                : new[] { new SavedTerritory(new Vector2Int(0, -1)),
+                    new SavedTerritory(new Vector2Int(1, -1)) },
+            buildings = new[]
+            {
+                new SavedBuilding { definitionId = nameof(Belt), x = 4, y = 2,
+                    belt = new SavedBelt { item = SavedFood.From(item), progress = 0.5f } },
+                new SavedBuilding { definitionId = nameof(TradeBuilding), x = 8, y = 2,
+                    tradeBuilding = new SavedTradeBuilding { tradeId = tradeId,
+                        bufferedInput = seed == 101 ? 1 : 0,
+                        pendingOutput = seed == 101 ? 0 : 4 } }
+            }
+        };
 
         [Test]
         public void SceneValidation_AllowsPlotOverlayButRejectsOccupiedNeighbor()
@@ -415,28 +519,39 @@ namespace CozyFoodFactory.Tests.EditMode
                         harvesterObject),
                     MakeOption(nameof(Belt), Vector2Int.one, null)
                 };
-                var unlocks = new UnlockState();
-                var regions = new RegionState(new[]
-                {
-                    new FarmableRegion("Starter", "Starter", Vector2Int.zero,
-                        new Vector2Int(3, 3), true)
-                }, unlocks);
+                var settings = new TerritoryWorldSettings();
+                var generator = new PropertyWorldGenerator(settings);
+                var territories = new TerritorySystem(settings).Initialize();
+                PropertySourceSetup[] sources = territories.RelevantCoordinates.SelectMany(parcel =>
+                    generator.Generate(territories.WorldSeed, parcel)).ToArray();
                 var keys = new[]
                 {
-                    new SavedUnlock { category = UnlockKey.RegionCategory, id = "Starter" }
+                    new SavedUnlock { category = UnlockKey.CropCategory, id = "Potato" }
                 };
                 var world = new FactoryWorldData
                 {
+                    worldSeed = territories.WorldSeed,
+                    territoryGenerationVersion = TerritoryWorldSettings.GenerationVersion,
+                    territoryPurchaseCount = territories.ExpansionCount,
+                    reservedHubTerritory = new SavedTerritory(
+                        territories.ReservedHubTerritory),
+                    startingTerritory = new SavedTerritory(
+                        territories.StartingTerritory),
+                    purchasedTerritories = territories.Capture(),
+                    generatedTerritories = territories.RelevantCoordinates
+                        .Select(cell => new SavedTerritory(cell)).ToArray(),
+                    propertySources = sources.Select(source =>
+                        new SavedPropertySource(source)).ToArray(),
                     buildings = new[]
                     {
                         new SavedBuilding
                         {
-                            definitionId = nameof(FarmPlot), x = 0, y = 0,
+                            definitionId = nameof(FarmPlot), x = 0, y = -8,
                             farmPlot = new SavedFarmPlot()
                         },
                         new SavedBuilding
                         {
-                            definitionId = nameof(Harvester), x = 0, y = 0,
+                            definitionId = nameof(Harvester), x = 0, y = -8,
                             harvester = new SavedHarvester
                             {
                                 outputs = Array.Empty<SavedFood>()
@@ -445,24 +560,58 @@ namespace CozyFoodFactory.Tests.EditMode
                     }
                 };
                 Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.ValidateAgainstScene(
-                    world, options, Array.Empty<PropertySourceSetup>(), regions, keys,
+                    world, options, settings, keys,
                     Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
-                    new Vector2Int(10, 4)));
+                    new Vector2Int(2, 2), new Vector2Int(5, 5)));
+
+                world.buildings = world.buildings.Append(new SavedBuilding
+                {
+                    definitionId = nameof(FarmPlot), x = 0, y = 0,
+                    farmPlot = new SavedFarmPlot()
+                }).Append(new SavedBuilding
+                {
+                    definitionId = nameof(Belt), x = 1, y = 0,
+                    belt = new SavedBelt()
+                }).ToArray();
+                Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.ValidateAgainstScene(
+                    world, options, settings, keys,
+                    Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
+                    new Vector2Int(2, 2), new Vector2Int(5, 5)));
+
+                var saveData = new ProgressionSaveData { world = world };
+                ProgressionSaveData reloaded = JsonUtility.FromJson<ProgressionSaveData>(
+                    JsonUtility.ToJson(saveData));
+                FactoryWorldSnapshotValidator.RestoreSerializedNulls(reloaded.world);
+                Assert.DoesNotThrow(() => FactoryWorldSnapshotValidator.ValidateAgainstScene(
+                    reloaded.world, options, settings, keys,
+                    Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
+                    new Vector2Int(2, 2), new Vector2Int(5, 5)));
+
+                world.buildings = world.buildings.Take(2).Append(new SavedBuilding
+                {
+                    definitionId = nameof(Belt), x = 2, y = 2,
+                    belt = new SavedBelt()
+                }).ToArray();
+                Assert.Throws<ArgumentException>(() =>
+                    FactoryWorldSnapshotValidator.ValidateAgainstScene(world, options,
+                        settings, keys, Array.Empty<ProcessingRecipe>(),
+                        Array.Empty<MixingRecipe>(), new Vector2Int(2, 2),
+                        new Vector2Int(5, 5)));
 
                 world.buildings = new[]
                 {
                     world.buildings[0], world.buildings[1],
                     new SavedBuilding
                     {
-                        definitionId = nameof(Belt), x = 0, y = 1,
+                        definitionId = nameof(Belt), x = 0, y = -7,
                         belt = new SavedBelt()
                     }
                 };
                 Assert.Throws<ArgumentException>(() =>
                     FactoryWorldSnapshotValidator.ValidateAgainstScene(world, options,
-                        Array.Empty<PropertySourceSetup>(), regions, keys,
+                        settings, keys,
                         Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
-                        new Vector2Int(10, 4)));
+                        new Vector2Int(2, 2), new Vector2Int(3, 3)));
             }
             finally
             {
@@ -596,7 +745,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 };
                 using var source = new Session();
                 var saves = new ProgressionSaveService(source.Inventory, source.Orders,
-                    source.Unlocks, source.Shop, source.Regions, source.Discoveries,
+                    source.Unlocks, source.Shop, source.Discoveries,
                     new[] { source.Recipe }, Array.Empty<MixingRecipe>(), () => world);
 
                 string json = saves.ToJson();

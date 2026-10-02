@@ -241,34 +241,26 @@ namespace CozyFoodFactory.Tests.EditMode
         }
 
         [Test]
-        public void FarmPlotPlacement_AllowsOnlyRestoredFarmableCells()
+        public void FarmPlotPlacement_RequiresPurchasedTerritory()
         {
-            var unlocks = new UnlockState();
-            RegionState regions = CreateRegions(unlocks);
+            var territories = new TerritorySystem(new TerritoryWorldSettings()).Initialize();
             var behaviorObject = new GameObject("Farm Plot Placement Test");
             try
             {
                 var behavior = behaviorObject.AddComponent<FarmPlotPlacementBehavior>();
-                behavior.Configure(regions);
-                Assert.That(behavior.CanPlace(Vector2Int.zero, Vector2Int.one,
+                behavior.Configure(territories);
+                Assert.That(behavior.CanPlace(new Vector2Int(0, -8), Vector2Int.one,
                     BuildingRotation.Degrees0), Is.True);
-                Assert.That(behavior.CanPlace(new Vector2Int(1, 0), Vector2Int.one,
+                Assert.That(behavior.CanPlace(new Vector2Int(0, 0), Vector2Int.one,
                     BuildingRotation.Degrees0), Is.False);
-                Assert.That(behavior.CanPlace(new Vector2Int(-3, 0), Vector2Int.one,
+                Assert.That(behavior.CanPlace(new Vector2Int(8, -4), Vector2Int.one,
                     BuildingRotation.Degrees0), Is.False);
-
-                var occupancy = new GridOccupancy();
-                Assert.That(occupancy.TryRegister(nameof(FarmPlot), Vector2Int.zero,
-                    Vector2Int.one, BuildingRotation.Degrees0,
-                    out BuildingPlacement existingPlot), Is.True);
-                unlocks.Grant(new UnlockKey(UnlockKey.RegionAccessCategory, "east"));
-                Assert.That(regions.TryRestore("east"), Is.True);
-
-                Assert.That(behavior.CanPlace(new Vector2Int(1, 0), Vector2Int.one,
+                var inventory = new MarketInventory();
+                inventory.Restore(50,
+                    new System.Collections.Generic.Dictionary<FoodItemData, int>());
+                Assert.That(territories.TryPurchase(new Vector2Int(1, -1), inventory), Is.True);
+                Assert.That(behavior.CanPlace(new Vector2Int(8, -4), Vector2Int.one,
                     BuildingRotation.Degrees0), Is.True);
-                Assert.That(occupancy.TryGetBuilding(Vector2Int.zero,
-                    out BuildingPlacement preserved), Is.True);
-                Assert.That(preserved, Is.SameAs(existingPlot));
             }
             finally
             {

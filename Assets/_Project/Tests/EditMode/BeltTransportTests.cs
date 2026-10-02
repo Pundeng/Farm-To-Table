@@ -236,6 +236,30 @@ namespace CozyFoodFactory.Tests.EditMode
         }
 
         [Test]
+        public void RemovingAndRestoringSplitBranch_RefreshesActiveConnectionsAndCursor()
+        {
+            var system = new BeltTransportSystem(1f);
+            BeltCell junction = system.AddBelt(Vector2Int.zero, GridDirection.North);
+            junction.SetOutputs(BeltCell.Bit(GridDirection.North) |
+                BeltCell.Bit(GridDirection.East) | BeltCell.Bit(GridDirection.West),
+                (int)GridDirection.West);
+            BeltCell left = system.AddBelt(Vector2Int.left, GridDirection.North);
+            system.AddBelt(Vector2Int.right, GridDirection.North);
+
+            Assert.That(junction.ConnectedOutputMask,
+                Is.EqualTo(BeltCell.Bit(GridDirection.East) | BeltCell.Bit(GridDirection.West)));
+            system.RemoveBelt(left);
+            Assert.That(junction.ConnectedOutputMask, Is.EqualTo(BeltCell.Bit(GridDirection.East)));
+            Assert.That(junction.PreferredOutput, Is.EqualTo(GridDirection.East));
+
+            BeltCell restoredLeft = system.AddBelt(Vector2Int.left, GridDirection.North);
+            Assert.That(junction.ConnectedOutputMask,
+                Is.EqualTo(BeltCell.Bit(GridDirection.East) | BeltCell.Bit(GridDirection.West)));
+            Assert.That(restoredLeft.ConnectedInputMask,
+                Is.EqualTo(BeltCell.Bit(GridDirection.East)));
+        }
+
+        [Test]
         public void Split_AlternatesAvailableOutputs_AndUsesUnblockedFallback()
         {
             var system = new BeltTransportSystem(1f);

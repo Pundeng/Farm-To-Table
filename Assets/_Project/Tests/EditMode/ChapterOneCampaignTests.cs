@@ -17,15 +17,51 @@ namespace CozyFoodFactory.Tests.EditMode
         private const string ScenePath = "Assets/_Project/Scenes/Demo.unity";
 
         [Test]
-        public void AuthoredChapter_HasEightObjectivesAndRequiredUnlocks()
+        public void FixedMarket_UsesThreeByThreeFootprintCenteredOnItsAnchor()
+        {
+            WithScene((market, buildings) =>
+            {
+                Assert.That(market.Footprint, Is.EqualTo(new Vector2Int(3, 3)));
+                Assert.That(market.InputPorts.Count, Is.EqualTo(12));
+                Assert.That(market.InputPorts.Select(port => port.ExternalCell).Distinct().Count(), Is.EqualTo(12));
+                Assert.That(market.transform.position,
+                    Is.EqualTo(buildings.GridSystem.GridToWorld(
+                        market.AnchorCell + Vector2Int.one)));
+            });
+        }
+
+        [Test]
+        public void MarketIsCenteredInReservedHubBesideSouthStartingParcel()
         {
             WithScene((market, _) =>
             {
-                string[] ids = { "O1", "O2", "O3", "O4", "O5", "O6", "O7", "O8" };
+                TerritorySystem territories = market.Territories;
+                Assert.That(market.AnchorCell, Is.EqualTo(new Vector2Int(2, 2)));
+                Assert.That(territories.CoordinateAtCell(market.AnchorCell),
+                    Is.EqualTo(Vector2Int.zero));
+                Assert.That(territories.GetPurchaseStatus(Vector2Int.zero, 1000),
+                    Is.EqualTo(TerritoryPurchaseStatus.ReservedHub));
+                Assert.That(territories.PurchasedCoordinates, Is.EquivalentTo(
+                    new[] { new Vector2Int(0, -1) }));
+                Assert.That(territories.GetParcelVisualState(new Vector2Int(0, -1), 1000),
+                    Is.EqualTo(TerritoryParcelVisualState.Owned));
+                Assert.That(territories.GetParcelVisualState(new Vector2Int(0, -2), 1000),
+                    Is.EqualTo(TerritoryParcelVisualState.Purchasable));
+                Assert.That(territories.GetParcelVisualState(new Vector2Int(1, 0), 1000),
+                    Is.EqualTo(TerritoryParcelVisualState.Locked));
+            });
+        }
+
+        [Test]
+        public void AuthoredChapter_HasTenObjectivesAndRequiredUnlocks()
+        {
+            WithScene((market, _) =>
+            {
+                string[] ids = { "O1", "O2", "O3", "O4", "O5", "O6", "O7", "O8", "O9", "O10" };
                 string[] foods = { "carrot", "Roasted Carrot", "Tomato Sauce",
                     "Potato Slice", "French Fries", "Tomato Soup",
-                    "Loaded Fries", "Garden Lunch" };
-                int[] quantities = { 30, 40, 70, 90, 150, 220, 300, 400 };
+                    "Loaded Fries", "Garden Lunch", "Egg", "Tomato Omelette" };
+                int[] quantities = { 30, 40, 70, 90, 150, 220, 300, 400, 500, 700 };
                 Assert.That(market.Orders.Select(order => order.Id), Is.EqualTo(ids));
                 for (int index = 0; index < ids.Length; index++)
                 {
@@ -41,20 +77,34 @@ namespace CozyFoodFactory.Tests.EditMode
                 AssertUnlock(market.Orders[1], UnlockKey.CropCategory, "Tomato");
                 AssertUnlock(market.Orders[1], UnlockKey.CropCategory, "Onion");
                 AssertUnlock(market.Orders[2], UnlockKey.MachineCategory, "Cutter");
-                AssertUnlock(market.Orders[2], UnlockKey.RegionAccessCategory, "East Field");
-                AssertUnlock(market.Orders[7], "chapter", "vegetable_complete");
+                AssertUnlock(market.Orders[2], UnlockKey.CropCategory, "Potato");
+                AssertUnlock(market.Orders[7], UnlockKey.MachineCategory, "TradeBuilding");
+                AssertUnlock(market.Orders[9], "chapter", "chapter_1_complete");
+                var tradeController = new SerializedObject(
+                    FindBuildings(market.gameObject.scene));
+                SerializedProperty trades = tradeController.FindProperty("tradeRecipes");
+                Assert.That(trades.arraySize, Is.EqualTo(1));
+                SerializedProperty chickenTrade = trades.GetArrayElementAtIndex(0);
+                Assert.That(chickenTrade.FindPropertyRelative("id").stringValue,
+                    Is.EqualTo("chicken-garden-egg"));
+                Assert.That(chickenTrade.FindPropertyRelative("villageId").stringValue,
+                    Is.EqualTo("chicken-village"));
+                Assert.That(chickenTrade.FindPropertyRelative("inputQuantity").intValue,
+                    Is.EqualTo(1));
+                Assert.That(chickenTrade.FindPropertyRelative("outputQuantity").intValue,
+                    Is.EqualTo(2));
                 var marketData = new SerializedObject(market);
                 Assert.That(marketData.FindProperty("seedOffers").arraySize, Is.Zero);
             });
         }
 
         [Test]
-        public void AuthoredChapter_RecipesMatchTheSevenRequiredTransformations()
+        public void AuthoredChapter_RecipesMatchTheEightRequiredTransformations()
         {
             WithScene((_, buildings) =>
             {
                 Assert.That(buildings.ProcessorRecipes, Has.Count.EqualTo(3));
-                Assert.That(buildings.MixerRecipes, Has.Count.EqualTo(3));
+                Assert.That(buildings.MixerRecipes, Has.Count.EqualTo(4));
                 Assert.That(buildings.CutterRecipes, Has.Count.EqualTo(1));
                 AssertProcessing(buildings, "carrot", CookingProperty.Heat,
                     "Roasted Carrot");
@@ -65,6 +115,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 AssertMixing(buildings, "tomato", "onion", "Tomato Sauce");
                 AssertMixing(buildings, "French Fries", "Tomato Sauce", "Loaded Fries");
                 AssertMixing(buildings, "Loaded Fries", "Tomato Soup", "Garden Lunch");
+                AssertMixing(buildings, "Egg", "Tomato Sauce", "Tomato Omelette");
                 Assert.That(buildings.CutterRecipes[0].Input.Id, Is.EqualTo("potato"));
                 Assert.That(buildings.CutterRecipes[0].Output.Id, Is.EqualTo("Potato Slice"));
                 Assert.That(buildings.ProcessorRecipes.All(recipe =>
@@ -104,6 +155,12 @@ namespace CozyFoodFactory.Tests.EditMode
                 Assert.That(mixing.Find(prepared("Loaded Fries"), prepared("Tomato Soup"),
                     out MixingRecipe lunch), Is.EqualTo(ProcessingRecipeMatch.Unique));
                 Assert.That(lunch.Output.Id, Is.EqualTo("Garden Lunch"));
+                Assert.That(mixing.Find(raw("Egg"), prepared("Tomato Sauce"),
+                    out _), Is.EqualTo(ProcessingRecipeMatch.Unique));
+                var omeletteMixer = new BasicMixerProcess(mixing);
+                Assert.That(omeletteMixer.TryAccept(0, raw("Egg")), Is.True);
+                Assert.That(omeletteMixer.TryAccept(1, prepared("Tomato Sauce")), Is.True);
+                Assert.That(omeletteMixer.PeekOutput().Id, Is.EqualTo("Tomato Omelette"));
                 Assert.That(cutting.Find(raw("potato"), out CuttingRecipe slices),
                     Is.EqualTo(ProcessingRecipeMatch.Unique));
                 var cutter = new CutterProcess(cutting, 1f);
@@ -152,11 +209,18 @@ namespace CozyFoodFactory.Tests.EditMode
                         Assert.That(unlocks.IsUnlocked(UnlockKey.MachineCategory,
                             "BasicMixer"), Is.False);
                     if (index == 4)
-                        Assert.That(unlocks.IsUnlocked("chapter", "vegetable_complete"),
+                        Assert.That(unlocks.IsUnlocked("chapter", "chapter_1_complete"),
                             Is.False);
+                    if (index == 7)
+                    {
+                        Assert.That(unlocks.IsUnlocked(UnlockKey.MachineCategory,
+                            "TradeBuilding"), Is.True);
+                        Assert.That(unlocks.IsUnlocked("chapter", "chapter_1_complete"),
+                            Is.False);
+                    }
                 }
                 Assert.That(sequence.ActiveOrder, Is.Null);
-                Assert.That(unlocks.IsUnlocked("chapter", "vegetable_complete"), Is.True);
+                Assert.That(unlocks.IsUnlocked("chapter", "chapter_1_complete"), Is.True);
             });
         }
 
@@ -234,24 +298,27 @@ namespace CozyFoodFactory.Tests.EditMode
             finally { UnityEngine.Object.DestroyImmediate(root); }
         }
 
-        [Test]
-        public void GardenLunchProgressSurvivesSaveAndCompletesAtFourHundred()
+        [TestCase("Egg", FoodItemKind.RawIngredient, "O9", 500, 499)]
+        [TestCase("Tomato Omelette", FoodItemKind.ProcessedFood, "O10", 700, 699)]
+        public void LargeObjectiveProgressSurvivesSaveAndCompletesAtTarget(
+            string foodId, FoodItemKind kind, string objective, int target, int beforeTarget)
         {
-            var food = new FoodItemData("Garden Lunch", FoodItemKind.ProcessedFood);
-            using var source = new LargeOrderSession(food);
-            for (int index = 0; index < 399; index++)
+            var food = new FoodItemData(foodId, kind);
+            using var source = new LargeOrderSession(food, objective, target);
+            for (int index = 0; index < beforeTarget; index++)
                 Assert.That(source.Receiver.TryAcceptItem(food, GridDirection.East), Is.True);
             Assert.That(source.Orders.ActiveOrder.GetDeliveredCount(
-                source.Orders.ActiveOrder.Order.Requirements[0]), Is.EqualTo(399));
+                source.Orders.ActiveOrder.Order.Requirements[0]), Is.EqualTo(beforeTarget));
 
             string json = source.Saves.ToJson();
-            using var restored = new LargeOrderSession(food);
+            using var restored = new LargeOrderSession(food, objective, target);
             Assert.That(restored.Saves.TryLoadJson(json, out string error), Is.True, error);
             Assert.That(restored.Orders.ActiveOrder.GetDeliveredCount(
-                restored.Orders.ActiveOrder.Order.Requirements[0]), Is.EqualTo(399));
+                restored.Orders.ActiveOrder.Order.Requirements[0]), Is.EqualTo(beforeTarget));
             restored.Receiver.TryAcceptItem(food, GridDirection.East);
             Assert.That(restored.Orders.ActiveOrder, Is.Null);
-            Assert.That(restored.Unlocks.IsUnlocked("chapter", "vegetable_complete"), Is.True);
+            Assert.That(restored.Unlocks.IsUnlocked("chapter", "chapter_1_complete"),
+                Is.EqualTo(objective == "O10"));
         }
 
         private static void AssertUnlock(FoodOrder order, string category, string id) =>
@@ -289,6 +356,11 @@ namespace CozyFoodFactory.Tests.EditMode
             finally { EditorSceneManager.ClosePreviewScene(scene); }
         }
 
+        private static BuildingPlacementController FindBuildings(Scene scene) =>
+            scene.GetRootGameObjects()
+                .SelectMany(root => root.GetComponentsInChildren<BuildingPlacementController>(true))
+                .Single();
+
         private sealed class LargeOrderSession : IDisposable
         {
             public readonly MarketReceiver Receiver;
@@ -296,20 +368,20 @@ namespace CozyFoodFactory.Tests.EditMode
             public readonly UnlockState Unlocks = new();
             public readonly ProgressionSaveService Saves;
 
-            public LargeOrderSession(FoodItemData food)
+            public LargeOrderSession(FoodItemData food, string objective, int quantity)
             {
                 var inventory = new MarketInventory();
                 Receiver = new MarketReceiver(Vector2Int.zero, inventory);
                 Orders = new FoodOrderSequence(new[]
                 {
-                    new FoodOrder("O8", "Garden Lunch",
-                        new[] { new FoodOrderRequirement(food, 400) },
-                        new[] { new UnlockKey("chapter", "vegetable_complete") })
+                    new FoodOrder(objective, food.Id,
+                        new[] { new FoodOrderRequirement(food, quantity) },
+                        objective == "O10"
+                            ? new[] { new UnlockKey("chapter", "chapter_1_complete") }
+                            : Array.Empty<UnlockKey>())
                 }, Receiver, Unlocks);
                 Saves = new ProgressionSaveService(inventory, Orders, Unlocks,
                     new SeedShop(Array.Empty<SeedShopOffer>(), inventory, Unlocks),
-                    new RegionState(new[] { new FarmableRegion("Starter", "Starter",
-                        Vector2Int.zero, Vector2Int.one, true) }, Unlocks),
                     new RecipeDiscoveryRegistry(), Array.Empty<ProcessingRecipe>(),
                     Array.Empty<MixingRecipe>());
             }

@@ -1,34 +1,41 @@
 using System;
 using System.Collections.Generic;
 using CozyFoodFactory.Buildings;
+using CozyFoodFactory.CameraControl;
 using CozyFoodFactory.Logistics;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace CozyFoodFactory.Food
 {
     public sealed class Market : MonoBehaviour
     {
+        private readonly List<GameObject> inputMarks = new();
         [SerializeField] private BeltTransportCoordinator transportCoordinator = null;
         [SerializeField] private Sprite visualSprite;
-        [SerializeField] private Vector2Int inputCell = new(10, 4);
+        [SerializeField] private GameObject visualPrefab;
+        [FormerlySerializedAs("inputCell")]
+        [SerializeField] private Vector2Int anchorCell = new(2, 2);
         [SerializeField] private string lastDeliveryDebug = string.Empty;
         [Header("Main Campaign Objectives (in sequence order)")]
         [InspectorName("Main Campaign Objectives")]
         [Tooltip("Edit each objective's ID, required Food and Quantity, and Unlocks here. Reorder the array to change the campaign sequence. Keep existing IDs and completed objectives in place for save compatibility.")]
         [SerializeField] private FoodOrder[] orders = Array.Empty<FoodOrder>();
         [SerializeField] private SeedShopOffer[] seedOffers = Array.Empty<SeedShopOffer>();
-        [SerializeField] private FarmableRegion[] farmableRegions =
-            Array.Empty<FarmableRegion>();
+        [SerializeField] private TerritoryWorldSettings territorySettings = new();
 
         private MarketReceiver receiver;
         private FoodOrderSequence orderSequence;
         private SeedShop seedShop;
-        private RegionState regions;
+        private TerritorySystem territories;
         private readonly UnlockState unlocks = new();
 
-        public Vector2Int InputCell => inputCell;
+        public Vector2Int AnchorCell => anchorCell;
 
-        public Vector2Int Footprint => Vector2Int.one;
+        public IReadOnlyList<MarketInputPort> InputPorts => receiver?.Ports ??
+            MarketPortLayout.Generate(anchorCell);
+
+        public Vector2Int Footprint => MarketPortLayout.Footprint;
 
         public MarketInventory Inventory => receiver?.Inventory;
 
@@ -42,7 +49,8 @@ namespace CozyFoodFactory.Food
         public FoodOrderProgress ActiveOrder => orderSequence?.ActiveOrder;
         public UnlockState Unlocks => unlocks;
         public SeedShop SeedShop => seedShop;
-        public RegionState Regions => regions;
+        public TerritorySystem Territories => territories ??=
+            new TerritorySystem(territorySettings).Initialize();
         public FoodOrderSequence OrderSequence => orderSequence;
 
         public string LastDeliveryMessage => lastDeliveryDebug;
@@ -55,13 +63,15 @@ namespace CozyFoodFactory.Food
                 throw new MissingReferenceException("The Market requires a Belt Transport Coordinator.");
             }
 
-            receiver = new MarketReceiver(inputCell, new MarketInventory());
+            receiver = new MarketReceiver(anchorCell, new MarketInventory());
             receiver.FoodDelivered += HandleFoodDelivered;
             orderSequence = new FoodOrderSequence(orders, receiver, unlocks);
             seedShop = new SeedShop(seedOffers, receiver.Inventory, unlocks);
-            regions = new RegionState(farmableRegions, unlocks);
+            territorySettings.Validate(anchorCell, Footprint);
+            Territories.Initialize();
             unlocks.RestoreUnseen(Array.Empty<UnlockKey>());
-            transportCoordinator.RegisterInputReceiver(receiver);
+            foreach (IItemInputReceiver input in receiver.InputReceivers)
+                transportCoordinator.RegisterInputReceiver(input);
             CreatePlaceholderVisual();
         }
 
@@ -82,39 +92,56 @@ namespace CozyFoodFactory.Food
 
             receiver.FoodDelivered -= HandleFoodDelivered;
             orderSequence?.Dispose();
-            transportCoordinator?.UnregisterInputReceiver(receiver);
+            foreach (IItemInputReceiver input in receiver.InputReceivers)
+                transportCoordinator?.UnregisterInputReceiver(input);
         }
 
         private void CreatePlaceholderVisual()
         {
-            if (visualSprite != null)
+            if (visualPrefab != null)
+            {
+                GameObject visual = Instantiate(visualPrefab, transform, false);
+                visual.name = "Market Visual";
+                visual.transform.localPosition = Vector3.zero;
+                visual.transform.localRotation = Quaternion.identity;
+            }
+            else if (visualSprite != null)
             {
                 CreateVisualPart("Market Body", Vector2.zero,
-                    new Vector2(0.85f, 0.85f), Color.white, 8, visualSprite);
+                    FootprintVisualSize(), Color.white, 8, visualSprite);
             }
             else
             {
                 CreateVisualPart("Market Body", Vector2.zero,
-                    new Vector2(0.85f, 0.85f),
+                    FootprintVisualSize(),
                     new Color(0.2f, 0.7f, 0.55f, 1f), 8);
                 CreateVisualPart("Market Core", Vector2.zero,
-                    new Vector2(0.38f, 0.38f),
+                    new Vector2(0.7f, 0.7f),
                     new Color(1f, 0.85f, 0.4f, 1f), 9);
             }
-            foreach (GridDirection direction in new[]
-                { GridDirection.North, GridDirection.East, GridDirection.South, GridDirection.West })
+            foreach (MarketInputPort port in InputPorts)
             {
-                Vector2 position = -(Vector2)direction.ToOffset() * 0.42f;
-                Vector2 scale = direction is GridDirection.East or GridDirection.West
-                    ? new Vector2(0.12f, 0.3f)
-                    : new Vector2(0.3f, 0.12f);
-                CreateVisualPart($"Input {direction}", position, scale,
-                    BuildingPortPreviewLayouts.InputColor, 10);
+                Vector2 position = (Vector2)(port.EdgeCell - AnchorCell) -
+                    (Vector2)(Footprint - Vector2Int.one) * 0.5f +
+                    (Vector2)port.Side.ToOffset() * 0.44f;
+                Vector2 scale = port.Side is GridDirection.East or GridDirection.West
+                    ? new Vector2(0.10f, 0.32f) : new Vector2(0.32f, 0.10f);
+                inputMarks.Add(CreateVisualPart($"Market Input {port.Side} {port.EdgeCell}",
+                    position, scale, BuildingPortPreviewLayouts.InputColor, 10));
             }
             gameObject.AddComponent<MachineVisualAnimator>().InitializeMarket(this);
         }
 
-        private void CreateVisualPart(
+        private Vector2 FootprintVisualSize() =>
+            new(Footprint.x * 0.93f, Footprint.y * 0.93f);
+
+        public void SetInformationLevel(WorldInformationLevel level, bool detail)
+        {
+            foreach (GameObject mark in inputMarks)
+                mark.SetActive(MachineAnimationDecisions.ShowMotion(level, detail));
+        }
+
+        private GameObject CreateVisualPart(
             string name, Vector2 position, Vector2 scale, Color color,
             int sortingOrder, Sprite sprite = null)
         {
@@ -130,6 +157,7 @@ namespace CozyFoodFactory.Food
                 BuildingVisualFactory.PlaceholderSprite;
             renderer.color = color;
             renderer.sortingOrder = sortingOrder;
+            return part;
         }
     }
 

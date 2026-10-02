@@ -57,6 +57,32 @@ namespace CozyFoodFactory.Tests
             Assert.That(process.PeekOutput(), Is.EqualTo(Milk));
         }
 
+        [Test]
+        public void ChickenCampaignTradeConvertsOneGardenLunchIntoTwoEggs()
+        {
+            var lunch = new FoodItemData("Garden Lunch", FoodItemKind.ProcessedFood);
+            var egg = new FoodItemData("Egg", FoodItemKind.RawIngredient);
+            var recipe = new TradeRecipe("chicken-garden-egg", "chicken-village",
+                lunch, 1, egg, 2);
+            var process = new TradeProcess(new[] { recipe });
+            Assert.That(process.Select("chicken-garden-egg"), Is.True);
+            Assert.That(process.TryAccept(new FoodItemData("Loaded Fries",
+                FoodItemKind.ProcessedFood)), Is.False);
+            Assert.That(process.TryAccept(lunch), Is.True);
+            Assert.That(process.BufferedInput, Is.Zero);
+            Assert.That(process.PendingOutput, Is.EqualTo(2));
+            Assert.That(process.PeekOutput(), Is.EqualTo(egg));
+            SavedTradeBuilding saved = process.Capture();
+            var restored = new TradeProcess(new[] { recipe });
+            restored.Restore(saved);
+            Assert.That(restored.PendingOutput, Is.EqualTo(2));
+            Assert.That(restored.TryTakeOutput(out FoodItemData first), Is.True);
+            Assert.That(first, Is.EqualTo(egg));
+            Assert.That(restored.TryTakeOutput(out FoodItemData second), Is.True);
+            Assert.That(second, Is.EqualTo(egg));
+            Assert.That(restored.TryTakeOutput(out _), Is.False);
+        }
+
         [TestCase(2, 0)]
         [TestCase(0, 2)]
         [TestCase(0, 1)]

@@ -9,10 +9,22 @@ using UnityEngine.SceneManagement;
 
 namespace CozyFoodFactory.Food
 {
+    public static class ProgressionSaveSlotSession
+    {
+        public static int ActiveSlot { get; private set; } = 1;
+
+        public static void SetActiveSlot(int slot)
+        {
+            if (slot < 1 || slot > ProgressionSaveService.SlotCount)
+                throw new ArgumentOutOfRangeException(nameof(slot));
+            ActiveSlot = slot;
+        }
+    }
+
     [Serializable]
     public sealed class ProgressionSaveData
     {
-        public int version = 2;
+        public int version = 6;
         public long currency;
         public SavedDelivery[] deliveries;
         public string[] completedOrderIds;
@@ -60,7 +72,6 @@ namespace CozyFoodFactory.Food
         private readonly FoodOrderSequence orders;
         private readonly UnlockState unlocks;
         private readonly SeedShop shop;
-        private readonly RegionState regions;
         private readonly RecipeDiscoveryRegistry discoveries;
         private readonly IReadOnlyList<ProcessingRecipe> processorRecipes;
         private readonly IReadOnlyList<MixingRecipe> mixerRecipes;
@@ -71,7 +82,7 @@ namespace CozyFoodFactory.Food
 
         public ProgressionSaveService(Market market, BuildingPlacementController buildings)
             : this(market?.Inventory, market?.OrderSequence, market?.Unlocks,
-                market?.SeedShop, market?.Regions, buildings?.RecipeDiscoveries,
+                market?.SeedShop, buildings?.RecipeDiscoveries,
                 buildings?.ProcessorRecipes, buildings?.MixerRecipes)
         {
             if (buildings == null)
@@ -86,7 +97,7 @@ namespace CozyFoodFactory.Food
         }
 
         public ProgressionSaveService(MarketInventory inventory, FoodOrderSequence orders,
-            UnlockState unlocks, SeedShop shop, RegionState regions,
+            UnlockState unlocks, SeedShop shop,
             RecipeDiscoveryRegistry discoveries,
             IReadOnlyList<ProcessingRecipe> processorRecipes,
             IReadOnlyList<MixingRecipe> mixerRecipes,
@@ -97,7 +108,6 @@ namespace CozyFoodFactory.Food
             this.orders = orders ?? throw new ArgumentNullException(nameof(orders));
             this.unlocks = unlocks ?? throw new ArgumentNullException(nameof(unlocks));
             this.shop = shop ?? throw new ArgumentNullException(nameof(shop));
-            this.regions = regions ?? throw new ArgumentNullException(nameof(regions));
             this.discoveries = discoveries ?? throw new ArgumentNullException(nameof(discoveries));
             this.processorRecipes = processorRecipes ??
                 throw new ArgumentNullException(nameof(processorRecipes));
@@ -107,11 +117,39 @@ namespace CozyFoodFactory.Food
                 FactoryWorldSnapshotValidator.Validate(world));
         }
 
+        public const int SlotCount = 5;
+
+        public static string SlotPath(int slot) => SlotPath(Application.persistentDataPath, slot);
+
+        public static string SlotPath(string directory, int slot)
+        {
+            if (slot < 1 || slot > SlotCount)
+                throw new ArgumentOutOfRangeException(nameof(slot));
+            return Path.Combine(directory, $"cozy-food-factory-slot-{slot}.json");
+        }
+
         public static string DemoPath =>
-            Path.Combine(Application.persistentDataPath, "cozy-food-factory-chapter-1.json");
+            Path.Combine(Application.persistentDataPath,
+                "cozy-food-factory-chapter-1-territories-v3.json");
 
         public static string LegacyDemoPath =>
             Path.Combine(Application.persistentDataPath, "cozy-food-factory-demo.json");
+
+        public static string PreviousCampaignPath =>
+            Path.Combine(Application.persistentDataPath,
+                "cozy-food-factory-chapter-1-trading.json");
+
+        public static string PreviousReservedTerritoryPath =>
+            Path.Combine(Application.persistentDataPath,
+                "cozy-food-factory-chapter-1-territories-v2.json");
+
+        public static string PreviousTerritoryPath =>
+            Path.Combine(Application.persistentDataPath,
+                "cozy-food-factory-chapter-1-territories.json");
+
+        public static string PreviousChapterPath =>
+            Path.Combine(Application.persistentDataPath,
+                "cozy-food-factory-chapter-1.json");
 
         public string ToJson() => JsonUtility.ToJson(Capture(), true);
 
@@ -122,11 +160,13 @@ namespace CozyFoodFactory.Food
             {
                 data = JsonUtility.FromJson<ProgressionSaveData>(json);
                 MigrateLegacyDemo(data);
-                if (data?.version == 2)
+                if (data?.version == 6)
                 {
                     FactoryWorldSnapshotValidator.RestoreSerializedNulls(data.world);
                     validateWorld(data.world, data.unlocks);
                 }
+                else if (data?.version == 5)
+                    throw new ArgumentException("Version 5 saves use the previous single-parcel map. They remain untouched; start a new game in a save slot.");
                 else if (data?.version != 1)
                 {
                     throw new ArgumentException("Missing or unsupported save version.");
@@ -223,11 +263,13 @@ namespace CozyFoodFactory.Food
 
                 data = JsonUtility.FromJson<ProgressionSaveData>(File.ReadAllText(path));
                 MigrateLegacyDemo(data);
-                if (data?.version == 2)
+                if (data?.version == 6)
                 {
                     FactoryWorldSnapshotValidator.RestoreSerializedNulls(data.world);
                     validateWorld(data.world, data.unlocks);
                 }
+                else if (data?.version == 5)
+                    throw new ArgumentException("Version 5 saves use the previous single-parcel map. They remain untouched; start a new game in a save slot.");
                 ApplyValidated(data, false);
                 error = null;
                 return true;
@@ -244,7 +286,7 @@ namespace CozyFoodFactory.Food
 
         public void ApplySnapshot(ProgressionSaveData data)
         {
-            if (data?.version == 2)
+            if (data?.version == 6)
             {
                 validateWorld(data.world, data.unlocks);
             }
@@ -280,9 +322,6 @@ namespace CozyFoodFactory.Food
             if (!completedOldOrder) return;
 
             AddIfMissing(keys, UnlockKey.MachineCategory, nameof(Processor));
-            if (keys.Any(key => key?.category == UnlockKey.RegionCategory &&
-                    key.id == "East Field"))
-                AddIfMissing(keys, UnlockKey.CropCategory, "Potato");
             data.unlocks = keys.ToArray();
             data.activeOrderId = orders.Orders[1].Id;
             data.activeProgress = orders.Orders[1].Requirements.Select(requirement =>
@@ -348,7 +387,7 @@ namespace CozyFoodFactory.Food
 
         private void ApplyValidated(ProgressionSaveData data, bool apply = true)
         {
-            if (data == null || data.version is not (1 or 2) || data.currency < 0 ||
+            if (data == null || data.version is not (1 or 6) || data.currency < 0 ||
                 data.deliveries == null || data.completedOrderIds == null ||
                 data.activeProgress == null || data.unlocks == null ||
                 data.purchasedCropIds == null || data.discoveries == null)
@@ -470,21 +509,6 @@ namespace CozyFoodFactory.Food
                 }
             }
 
-            foreach (FarmableRegion region in regions.Regions)
-            {
-                var restored = new UnlockKey(UnlockKey.RegionCategory, region.Id);
-                if (region.InitiallyRestored && !uniqueUnlocks.Contains(restored) ||
-                    uniqueUnlocks.Contains(restored) && region.HasRequirement &&
-                    !uniqueUnlocks.Contains(new UnlockKey(region.RequiredUnlockCategory,
-                        region.RequiredUnlockId)) ||
-                    uniqueUnlocks.Contains(restored) &&
-                    region.RestorationUnlocks.Any(reward =>
-                        !uniqueUnlocks.Contains(reward)))
-                {
-                    throw new ArgumentException("Invalid saved region state.");
-                }
-            }
-
             var discoveries = new List<DiscoveredRecipe>();
             var uniqueRecipes = new HashSet<DiscoveredRecipe>();
             foreach (SavedRecipe saved in data.discoveries)
@@ -594,6 +618,7 @@ namespace CozyFoodFactory.Food
         private static bool rollingBack;
         private static int sceneIndex;
         private static string pendingFeedback;
+        private static bool pendingNewGame;
 
         public static bool IsReconstructing { get; private set; }
         public static string LastMessage { get; private set; }
@@ -606,9 +631,9 @@ namespace CozyFoodFactory.Food
 
         public static bool TryBegin(ProgressionSaveData data, out string error)
         {
-            if (IsReconstructing || data?.version != 2)
+            if (IsReconstructing || data?.version is not (1 or 6))
             {
-                error = "A version 2 world load is required and no load may already be running.";
+                error = "A supported save is required and no load may already be running.";
                 return false;
             }
 
@@ -620,6 +645,7 @@ namespace CozyFoodFactory.Food
             }
 
             pending = data;
+            pendingNewGame = false;
             LastMessage = "Reconstructing factory...";
             IsReconstructing = true;
             rollingBack = false;
@@ -638,6 +664,37 @@ namespace CozyFoodFactory.Food
             return false;
         }
 
+        public static bool TryBeginNewGame(out string error)
+        {
+            if (IsReconstructing)
+            {
+                error = "A scene reload is already running.";
+                return false;
+            }
+            sceneIndex = SceneManager.GetActiveScene().buildIndex;
+            if (sceneIndex < 0)
+            {
+                error = "This scene is not in Build Settings; new game reload is unavailable.";
+                return false;
+            }
+            pending = null;
+            pendingNewGame = true;
+            IsReconstructing = true;
+            LastMessage = "Starting a new factory...";
+            SceneManager.sceneLoaded += OnSceneLoaded;
+            if (SceneManager.LoadSceneAsync(sceneIndex, LoadSceneMode.Single) != null)
+            {
+                error = null;
+                return true;
+            }
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            IsReconstructing = false;
+            pendingNewGame = false;
+            error = "The factory scene could not be reloaded.";
+            LastMessage = error;
+            return false;
+        }
+
         private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             if (rollingBack)
@@ -645,6 +702,28 @@ namespace CozyFoodFactory.Food
                 SceneManager.sceneLoaded -= OnSceneLoaded;
                 rollingBack = false;
                 IsReconstructing = false;
+                return;
+            }
+
+            if (pendingNewGame)
+            {
+                pendingNewGame = false;
+                IsReconstructing = false;
+                LastMessage = "New factory started.";
+                try
+                {
+                    string resetPath = ProgressionSaveService.SlotPath(
+                        ProgressionSaveSlotSession.ActiveSlot);
+                    if (File.Exists(resetPath)) File.Delete(resetPath);
+                }
+                catch (Exception exception) when (exception is IOException or
+                    UnauthorizedAccessException or ArgumentException)
+                {
+                    LastMessage = $"New factory started, but the previous slot save " +
+                        $"could not be cleared: {exception.Message}";
+                }
+                pendingFeedback = LastMessage;
+                SceneManager.sceneLoaded -= OnSceneLoaded;
                 return;
             }
 
@@ -660,7 +739,8 @@ namespace CozyFoodFactory.Food
 
                 var saves = new ProgressionSaveService(buildings.Market, buildings);
                 saves.ApplySnapshot(pending);
-                buildings.RestoreWorldSnapshot(pending.world, pending.unlocks);
+                if (pending.version == 6)
+                    buildings.RestoreWorldSnapshot(pending.world, pending.unlocks);
                 LastMessage = "Factory and progression loaded.";
                 pendingFeedback = LastMessage;
                 pending = null;

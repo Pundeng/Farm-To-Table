@@ -158,6 +158,49 @@ namespace CozyFoodFactory.Tests.EditMode
         }
 
         [Test]
+        public void History_GroupDeletionRestoresAndRemovesAllSelectedBuildingsInOneStep()
+        {
+            var populated = ConstructionLayout.FromWorld(new FactoryWorldData
+            {
+                buildings = new[]
+                {
+                    new SavedBuilding { definitionId = nameof(Belt), x = 1, y = 2,
+                        belt = new SavedBelt() },
+                    new SavedBuilding { definitionId = nameof(Belt), x = 2, y = 2,
+                        belt = new SavedBelt() },
+                    new SavedBuilding { definitionId = nameof(Belt), x = 3, y = 2,
+                        belt = new SavedBelt() }
+                }
+            });
+            var empty = ConstructionLayout.FromWorld(new FactoryWorldData());
+            ConstructionChange deletion = populated.Difference(empty);
+            var history = new ConstructionHistory();
+            ConstructionLayout current = populated;
+            history.Record(deletion);
+
+            Assert.That(deletion.Before.Buildings, Has.Length.EqualTo(3));
+            Assert.That(deletion.After.Buildings, Is.Empty);
+            Assert.That(history.UndoCount, Is.EqualTo(1));
+            Assert.That(history.TryUndo((expected, target) =>
+            {
+                Assert.That(current.Buildings, Has.Length.EqualTo(0));
+                Assert.That(expected.Buildings, Is.Empty);
+                current = target;
+                return true;
+            }), Is.True);
+            Assert.That(current.Buildings, Has.Length.EqualTo(3));
+            Assert.That(history.RedoCount, Is.EqualTo(1));
+            Assert.That(history.TryRedo((expected, target) =>
+            {
+                Assert.That(current.Buildings, Has.Length.EqualTo(3));
+                Assert.That(expected.Buildings, Has.Length.EqualTo(3));
+                current = target;
+                return true;
+            }), Is.True);
+            Assert.That(current.Buildings, Is.Empty);
+        }
+
+        [Test]
         public void History_RecordsBeltConnectionChangeAsOneConstructionDelta()
         {
             static ConstructionLayout Layout(int mask) =>

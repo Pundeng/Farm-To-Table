@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace CozyFoodFactory.Food
@@ -73,6 +74,12 @@ namespace CozyFoodFactory.Food
 
         public IEnumerable<PropertyConnection> Connections => connections.Values;
 
+        public void Clear()
+        {
+            connections.Clear();
+            capacities.Clear();
+        }
+
         internal CookingPropertyNetwork CopyForPreview()
         {
             var copy = new CookingPropertyNetwork();
@@ -93,8 +100,10 @@ namespace CozyFoodFactory.Food
                 return false;
             }
 
-            // A source cannot be placed against another source's infrastructure.
-            if (TouchesForeignNetwork(cell, cell))
+            // Deposits may contain touching sources; constructed networks remain separate.
+            if (Directions.Any(direction => connections.TryGetValue(cell + direction,
+                    out PropertyConnection neighbor) &&
+                    neighbor.Kind is PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe))
             {
                 return false;
             }
@@ -125,7 +134,7 @@ namespace CozyFoodFactory.Food
         {
             if (connections.ContainsKey(cell) ||
                 !TryGetSingleAdjacentOwner(cell, out Vector2Int sourceCell,
-                    requireConductor: false) ||
+                    requireConductor: true) ||
                 TouchesForeignNetwork(cell, sourceCell))
             {
                 return false;
@@ -156,8 +165,7 @@ namespace CozyFoodFactory.Food
                         continue;
                     }
 
-                    if (neighbor.Kind is PropertyConnectionKind.Source or
-                        PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe)
+                    if (neighbor.Kind is PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe)
                     {
                         touchesOwnNetwork = true;
                         break;
@@ -297,7 +305,7 @@ namespace CozyFoodFactory.Food
                         connection.SourceCell != sourceCell ||
                         connection.Kind == PropertyConnectionKind.Demand ||
                         (cell == sourceCell &&
-                         connection.Kind is not PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe))
+                         connection.Kind != PropertyConnectionKind.Collector))
                     {
                         continue;
                     }

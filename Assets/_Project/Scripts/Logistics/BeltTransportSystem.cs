@@ -13,6 +13,7 @@ namespace CozyFoodFactory.Logistics
         private readonly List<IItemOutputSource> outputSources = new();
         private readonly List<IItemOutputPairSource> outputPairs = new();
         private readonly Dictionary<Vector2Int, int> nextMachineInput = new();
+        private int topologyRevision;
 
         public BeltTransportSystem(float movementSpeed)
         {
@@ -39,6 +40,8 @@ namespace CozyFoodFactory.Logistics
             beltsByCell.Add(cell, belt);
             orderedBelts.Add(belt);
             orderedBelts.Sort(CompareCells);
+            belt.TopologyChanged += RecomputeTopology;
+            RecomputeTopology();
             return belt;
         }
 
@@ -56,7 +59,45 @@ namespace CozyFoodFactory.Logistics
             beltsByCell.Remove(belt.Cell);
             nextMachineInput.Remove(belt.Cell);
             orderedBelts.Remove(belt);
+            belt.TopologyChanged -= RecomputeTopology;
+            RecomputeTopology();
             return true;
+        }
+
+        public void RefreshTopology() => RecomputeTopology();
+
+        private void RecomputeTopology()
+        {
+            topologyRevision++;
+            foreach (BeltCell source in orderedBelts)
+            {
+                int output = 0;
+                for (int i = 0; i < 4; i++)
+                {
+                    GridDirection direction = (GridDirection)i;
+                    Vector2Int target = source.Cell + direction.ToOffset();
+                    if (source.HasOutput(direction) &&
+                        ((beltsByCell.TryGetValue(target, out BeltCell downstream) &&
+                          !downstream.HasOutput(Opposite(direction))) ||
+                         receiversByCell.ContainsKey(target)))
+                        output |= BeltCell.Bit(direction);
+                }
+                source.SetConnectedTopology(0, output);
+            }
+            foreach (BeltCell source in orderedBelts)
+            {
+                int input = 0;
+                for (int i = 0; i < 4; i++)
+                {
+                    GridDirection direction = (GridDirection)i;
+                    Vector2Int previous = source.Cell - direction.ToOffset();
+                    if (beltsByCell.TryGetValue(previous, out BeltCell upstream) &&
+                        (upstream.ConnectedOutputMask & BeltCell.Bit(direction)) != 0 &&
+                        !source.HasOutput(Opposite(direction)))
+                        input |= BeltCell.Bit(Opposite(direction));
+                }
+                source.SetConnectedTopology(input, source.ConnectedOutputMask);
+            }
         }
 
         public bool TryGetBelt(Vector2Int cell, out BeltCell belt)
@@ -79,6 +120,7 @@ namespace CozyFoodFactory.Logistics
             }
 
             receiversByCell.Add(receiver.InputCell, receiver);
+            RecomputeTopology();
         }
 
         public void UnregisterInputReceiver(IItemInputReceiver receiver)
@@ -88,6 +130,7 @@ namespace CozyFoodFactory.Logistics
                 ReferenceEquals(receiver, registered))
             {
                 receiversByCell.Remove(receiver.InputCell);
+                RecomputeTopology();
             }
         }
 
@@ -146,6 +189,7 @@ namespace CozyFoodFactory.Logistics
 
         private void TransferReadyItems()
         {
+            int observedRevision = topologyRevision;
             // All candidates observe pre-transfer occupancy. Contended belt inputs are
             // resolved by the destination cursor, then rejected splitters can retry.
             var beltTransfers = new List<(BeltCell Source, BeltCell Destination,
@@ -173,7 +217,7 @@ namespace CozyFoodFactory.Logistics
                         GridDirection direction = (GridDirection)
                             ((source.NextOutputIndex + offset) & 3);
                         int bit = BeltCell.Bit(direction);
-                        if ((source.OutputMask & bit) == 0 || (tried & bit) != 0)
+                        if ((source.ConnectedOutputMask & bit) == 0 || (tried & bit) != 0)
                             continue;
                         tried |= bit;
                         Vector2Int target = source.Cell + direction.ToOffset();
@@ -226,6 +270,8 @@ namespace CozyFoodFactory.Logistics
                 if (!anyProposal) break;
             }
 
+            if (observedRevision != topologyRevision) return;
+
             foreach ((BeltCell source, BeltCell destination, GridDirection direction)
                      in beltTransfers)
             {
@@ -239,6 +285,9 @@ namespace CozyFoodFactory.Logistics
             foreach ((BeltCell source, IItemInputReceiver destination,
                      GridDirection direction) in receiverTransfers)
             {
+                if (observedRevision != topologyRevision || !source.HasItem ||
+                    (source.ConnectedOutputMask & BeltCell.Bit(direction)) == 0)
+                    continue;
                 ITransportItem item = source.Item.Item;
                 if (!destination.TryAcceptItem(item, direction))
                 {

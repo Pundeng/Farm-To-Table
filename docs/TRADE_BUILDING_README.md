@@ -1,18 +1,17 @@
 # Village Trade Building
 
-Replace your Unity project's `Assets/_Project` folder with the `_Project` folder in this archive. This is the supplied project with the trade foundation added; the archive does not include Unity packages or ProjectSettings.
+The Trade Building was added as a general village trade foundation before Chapter 1 campaign integration. In active `Demo.unity`, O8 unlocks the Chicken Trading Center; its `chicken-village` trade exchanges Garden Lunch x1 for Egg x2. The campaign sequence, unlock, and recipe are authored on the Market and Building Placement Controller components described in `ARCHITECTURE.md`.
+
+This repository integrates the trade foundation into the existing project; do not replace the project folder with the historical source archive.
 
 ## Demo
 
-1. Open `Scenes/Demo.unity` and enter Play Mode.
-2. Choose **TradeBuilding** in the build menu or hotbar (shortcut **7**).
-3. Place it on an empty 3×3 area. Choose Egg or Milk in the popup.
-4. Route **Dried Apple** into any of its three left inputs. At rotation 0, the incoming Belts point right.
-5. Connect any of the three bottom outputs. At rotation 0, outgoing Belts point down.
-6. Both demo trades consume Dried Apple ×3 and produce the selected ingredient ×2.
-7. Click the building to reopen its chooser. Changing trades requires an empty input buffer and no pending output.
+After completing O8, choose **Chicken Trading Center** in the Build Menu.
+Place it on an empty 3x3 area and select the Garden Lunch for Egg trade. Each
+Garden Lunch produces two Eggs. Connect Garden Lunch to any left input and
+connect a bottom output to Market; the ports rotate with the building.
 
-The solid coloured placeholder body uses compact blue input arrows and red output arrows in both preview and placed states, with no A/B/C text. The chooser uses the same compact layout as the crop popup; hover Egg or Milk to see the full exchange. Left inputs and bottom outputs follow the reference, with three of each. Rotation rotates the footprint and all six ports together.
+The colored placeholder body uses blue input arrows and red output arrows in preview and placed states. The chooser shows the exchange and port directions. Left inputs and bottom outputs follow the reference; all six ports rotate with the footprint.
 
 ## Safety and output behavior
 
@@ -25,7 +24,7 @@ The solid coloured placeholder body uses compact blue input arrows and red outpu
 - Trade selection, partial input batches, and pending output counts are saved and restored.
 - Removal and Demo move operations are blocked while the building holds items.
 - Existing issue feedback, port highlighting, and machine animation are reused.
-- Demo trades are immediately available; no village progression or NPC system was added.
+- The campaign locks construction until O8 and uses this existing trade foundation.
 
 ## Configure more trades
 
@@ -38,29 +37,23 @@ On the Demo `BuildingPlacementController`, expand **Trade Recipes** in the Inspe
 - `output`: normal FoodItemData; Egg and Milk use RawIngredient.
 - `outputQuantity`: positive batch size.
 
-**Trade Village Id** selects the village's available recipes for this building option. The demo uses `demo-village`. Add recipes with that ID to extend its chooser. Another configured placement behavior can supply a different village's recipe list using the same building logic. Keep IDs and quantities stable for saved games; unavailable or incompatible saved trades are rejected before reconstruction.
+**Trade Village Id** selects the village's available recipes for this building option. Chapter 1 uses `chicken-village`. Add recipes with that ID to extend its chooser. Another configured placement behavior can supply a different village's recipe list using the same building logic. Keep IDs and quantities stable for saved games; unavailable or incompatible saved trades are rejected before reconstruction.
 
-This adds the ingredient foundation. It does not add Egg/Milk cooking recipes, all villages, final balancing, unlock progression, final art, or dialogue.
+The active Chapter 1 configures Egg + Tomato Sauce -> Tomato Omelette in the existing Basic Mixer recipe list. It does not add other villages, final balancing, final art, or dialogue.
 
 ## Verification
 
-All 91 C# source files passed a C# syntax parser. Unity is unavailable in the execution environment, so compilation, Edit Mode tests, and Play Mode validation have not been run here.
+The existing TradeBuildingTests cover trade selection, invalid food, exact batch sizes, buffered output, save restoration, duplicate prevention, rotated Belt ports, and blocked output. ChapterOneCampaignTests now cover O1-O10, quantities, recipes, unlock timing, and O9/O10 progress save round trips.
 
-Run Unity Test Runner → EditMode, including `TradeBuildingTests` and the existing suite. New cases cover selection, wrong food, exact quantities, recipe switching restrictions, partial-batch/output restoration, invalid saves, duplicate IDs, JSON round trips with existing Belts, and real Belt transfers through rotated ports with blocked output.
+These tests and Unity compilation have not been run in this task. Run them in the already-open Unity Editor, then manually verify the complete campaign and blocked trade output behavior in Play Mode.
 
-Manual regression checks:
 
-1. Trade three Dried Apples for two Eggs, then repeat for Milk.
-2. Feed raw Apple to a selected trade; it must remain on the Belt.
-3. Remove all exit Belts, complete a batch, reconnect only exit C; exactly two outputs must leave.
-4. Save and reload with two inputs buffered, then with one output still waiting.
-5. Rotate the building and test its outermost input/output ports.
-6. Verify farms, Harvesters, Processors, Mixers, Cutters, Market delivery, and existing Save/Load still work.
 
-## Changed files
 
-New runtime scripts: TradeRecipe, TradeProcess, TradePortLayout, TradeBuilding, TradeBuildingPlacementBehavior.
+## Existing implementation
 
-Integration edits: Demo.unity, BuildingPlacementController, BuildingVisualFactory (third-port feedback and compact Trade Building arrows), MachineVisualAnimator, FactoryWorldSnapshot, ConstructionHistory.
+The campaign reuses TradeRecipe, TradeProcess, TradePortLayout, TradeBuilding,
+FactoryWorldSnapshot, ConstructionHistory, BuildingVisualFactory, and
+MachineVisualAnimator. This task configures the existing systems for Chapter 1.
 
 New tests: TradeBuildingTests.

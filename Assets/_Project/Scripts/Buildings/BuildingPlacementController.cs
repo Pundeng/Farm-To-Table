@@ -57,12 +57,8 @@ namespace CozyFoodFactory.Buildings
         [SerializeField] private ObjectivePanel engraverUpgradePanel = null;
         [SerializeField] private Market market = null;
         [SerializeField] private bool foodDemoControls;
-        [SerializeField, Tooltip("Second HUD resource line; gameplay source is not finalized.")]
-        private string secondaryResourceText = "0";
         [SerializeField] private BuildingPlacementOption[] buildingOptions =
             Array.Empty<BuildingPlacementOption>();
-        [SerializeField] private PropertySourceSetup[] propertySources =
-            Array.Empty<PropertySourceSetup>();
         [SerializeField] private PropertyVisualDefinition propertyVisuals = new();
         [SerializeField] private BeltTransportCoordinator processorTransportCoordinator = null;
         [SerializeField, Min(0.01f)] private float processorDuration = 1f;
@@ -71,7 +67,7 @@ namespace CozyFoodFactory.Buildings
         [SerializeField] private MixingRecipe[] mixerRecipes =
             Array.Empty<MixingRecipe>();
         [SerializeField] private TradeRecipe[] tradeRecipes = Array.Empty<TradeRecipe>();
-        [SerializeField] private string tradeVillageId = "demo-village";
+        [SerializeField] private string tradeVillageId = "chicken-village";
         private TradeRecipe[] VillageTrades => tradeRecipes.Where(recipe =>
             recipe != null && recipe.VillageId == tradeVillageId).ToArray();
         [SerializeField] private CuttingRecipe[] cutterRecipes =
@@ -82,6 +78,7 @@ namespace CozyFoodFactory.Buildings
         [SerializeField, Min(0f)] private float blockedIssueDelay = 0.75f;
 
         private readonly GridOccupancy occupancy = new();
+        private readonly HashSet<Vector2Int> generatedTerritories = new();
         private readonly RecipeDiscoveryRegistry recipeDiscoveries = new();
         private readonly Dictionary<BuildingPlacement, PlacedBuilding> buildingInstances = new();
         private readonly Dictionary<BuildingPlacement, MachineFeedbackView> feedbackViews = new();
@@ -92,6 +89,8 @@ namespace CozyFoodFactory.Buildings
         private string contextualGuidance;
         private float guidanceUntil;
         private bool loadConfirmationOpen;
+        private bool saveConfirmationOpen;
+        private bool newGameConfirmationOpen;
         private bool quitConfirmationOpen;
         private readonly BeltDragPlacementPlanner beltDragPlanner = new();
         private bool beltRotationExplicit;
@@ -149,6 +148,7 @@ namespace CozyFoodFactory.Buildings
         private bool isGroupPasteModeActive;
         private bool pasteAwaitingMouseRelease;
         private PropertySupplyPlayMode propertySupply;
+        private PropertyWorldGenerator propertyWorldGenerator;
         private RecipeDiscoveryPanel recipeDiscoveryPanel;
         private DiscoveredRecipeKind? recipeShortcutKind;
         private Rect recipeShortcutRect;
@@ -160,18 +160,9 @@ namespace CozyFoodFactory.Buildings
         public PropertySupplyPlayMode PropertySupply => propertySupply;
         public Market Market => market;
         public GridSystem GridSystem => gridSystem;
-        public int CountFarmPlots(FarmableRegion region) => buildingInstances.Keys.Count(
-            placement => placement.DefinitionId == nameof(FarmPlot) &&
-                region.Contains(placement.AnchorCell));
-        public int CountFreeFarmCells(FarmableRegion region)
-        {
-            int free = 0;
-            for (int x = region.MinimumCell.x; x < region.MinimumCell.x + region.Size.x; x++)
-                for (int y = region.MinimumCell.y; y < region.MinimumCell.y + region.Size.y; y++)
-                    if (occupancy.CanPlace(new Vector2Int(x, y), Vector2Int.one,
-                            BuildingRotation.Degrees0)) free++;
-            return free;
-        }
+        public TerritorySystem Territories => market?.Territories;
+        public bool TryPurchaseTerritory(Vector2Int coordinate) =>
+            market?.Territories?.TryPurchase(coordinate, market.Inventory) == true;
         public bool IsFoodDemo => foodDemoControls;
         public DemoPanel OpenDemoPanel => demoPanel;
         public bool IsSystemMenuOpen => systemMenuOpen;
@@ -214,6 +205,7 @@ namespace CozyFoodFactory.Buildings
              foodDemoControls && IsPointerOverDemoHud() ||
              recipeDiscoveryPanel != null && recipeDiscoveryPanel.BlocksWorldInput ||
              marketPanel != null && marketPanel.IsPointerOverPanel ||
+             marketPanel != null && marketPanel.IsPointerOverTerritoryUi ||
              foodDemoControls && marketPanel?.IsPointerOverWorldObjective == true ||
              marketPanel != null && marketPanel.IsPointerOverRegionPanel ||
              engraverUpgradePanel != null && engraverUpgradePanel.IsPointerOverPanel ||
@@ -280,7 +272,19 @@ namespace CozyFoodFactory.Buildings
             {
                 buildings = saved.OrderBy(item => item.definitionId, StringComparer.Ordinal)
                     .ThenBy(item => item.x).ThenBy(item => item.y).ToArray(),
-                connections = propertySupply.CaptureWorldConnections()
+                connections = propertySupply.CaptureWorldConnections(),
+                worldSeed = market.Territories.WorldSeed,
+                territoryGenerationVersion = TerritoryWorldSettings.GenerationVersion,
+                territoryPurchaseCount = market.Territories.ExpansionCount,
+                reservedHubTerritory = new SavedTerritory(
+                    market.Territories.ReservedHubTerritory),
+                startingTerritory = new SavedTerritory(
+                    market.Territories.StartingTerritory),
+                purchasedTerritories = market.Territories.Capture(),
+                generatedTerritories = generatedTerritories.OrderBy(cell => cell.x)
+                    .ThenBy(cell => cell.y).Select(cell => new SavedTerritory(cell)).ToArray(),
+                propertySources = propertySupply.CaptureSources()
+                    .Select(source => new SavedPropertySource(source)).ToArray()
             };
         }
 
@@ -296,8 +300,9 @@ namespace CozyFoodFactory.Buildings
             }
 
             FactoryWorldSnapshotValidator.ValidateAgainstScene(world, buildingOptions,
-                propertySources, market.Regions, savedUnlocks, processorRecipes,
-                mixerRecipes, market.InputCell, cutterRecipes, VillageTrades);
+                market.Territories.Settings, savedUnlocks,
+                processorRecipes, mixerRecipes, market.AnchorCell, market.Footprint,
+                cutterRecipes, VillageTrades);
         }
 
         public void RestoreWorldSnapshot(FactoryWorldData world,
@@ -308,6 +313,14 @@ namespace CozyFoodFactory.Buildings
             {
                 throw new InvalidOperationException("Factory reconstruction requires a fresh scene.");
             }
+
+            market.Territories.Restore(world.worldSeed, world.purchasedTerritories,
+                world.territoryPurchaseCount);
+            generatedTerritories.Clear();
+            foreach (SavedTerritory parcel in world.generatedTerritories)
+                generatedTerritories.Add(parcel.Coordinate);
+            propertySupply.ResetSources(world.propertySources
+                .Select(source => source.ToSetup()).ToArray());
 
             // Overlay placement requires the underlying Farm Plot to exist first.
             IEnumerable<SavedBuilding> ordered =
@@ -361,6 +374,24 @@ namespace CozyFoodFactory.Buildings
             };
         }
 
+        private void OnTerritoryPurchased(Vector2Int coordinate)
+        {
+            if (market == null || propertyWorldGenerator == null || propertySupply == null)
+                return;
+            RevealFrontierSources();
+        }
+
+        private void RevealFrontierSources()
+        {
+            foreach (Vector2Int parcel in market.Territories.RelevantCoordinates)
+            {
+                if (generatedTerritories.Contains(parcel)) continue;
+                propertySupply.AddSources(propertyWorldGenerator.Generate(
+                    market.Territories.WorldSeed, parcel));
+                generatedTerritories.Add(parcel);
+            }
+        }
+
         private void Awake()
         {
             recipeDiscoveryPanel = GetComponent<RecipeDiscoveryPanel>();
@@ -370,20 +401,38 @@ namespace CozyFoodFactory.Buildings
                     Application.persistentDataPath, "cozy-food-factory-chapter-1-blueprints.json"));
             if (market != null && !occupancy.TryRegister(
                     nameof(Market),
-                    market.InputCell,
+                    market.AnchorCell,
                     market.Footprint,
                     BuildingRotation.Degrees0,
                     out _))
             {
                 throw new InvalidOperationException(
-                    $"The Market footprint at {market.InputCell} could not be reserved.");
+                    $"The Market footprint at {market.AnchorCell} could not be reserved.");
             }
 
+            propertyWorldGenerator = market != null
+                ? new PropertyWorldGenerator(market.Territories.Settings) : null;
+            PropertySourceSetup[] generatedSources = Array.Empty<PropertySourceSetup>();
             propertySupply = new PropertySupplyPlayMode(gridSystem, hoverHighlight,
-                occupancy, transform, propertySources, !foodDemoControls,
+                occupancy, transform, generatedSources, !foodDemoControls,
                 propertyVisuals, foodDemoControls
                     ? new Func<CookingProperty, bool>(IsChapterOnePropertyAvailable)
-                    : null);
+                    : null, market != null
+                        ? new Func<Vector2Int, bool>(IsBuildableTerritoryCell)
+                        : null, market != null
+                            ? new Func<Vector2Int, string>(cell =>
+                            {
+                                Vector2Int parcel = market.Territories.CoordinateAtCell(cell);
+                                return market.Territories.IsReservedHub(parcel)
+                                    ? "The Hub/Market parcel is reserved."
+                                    : "Purchase this territory before placing Property infrastructure.";
+                            })
+                            : null);
+            if (market != null)
+            {
+                RevealFrontierSources();
+                market.Territories.Purchased += OnTerritoryPurchased;
+            }
             if (foodDemoControls)
             {
                 propertySupply.ConstructionStarting += OnPropertyConstructionStarting;
@@ -467,6 +516,7 @@ namespace CozyFoodFactory.Buildings
             string name = unlock.Id switch
             {
                 nameof(BasicMixer) => "Basic Mixer",
+                nameof(TradeBuilding) => "Chicken Trading Center",
                 _ => unlock.Id.Replace('_', ' ')
             };
             string message = unlock.Category switch
@@ -783,7 +833,7 @@ namespace CozyFoodFactory.Buildings
                             "Wrong trade input", "Feed the food shown in the selected trade.")
                         : trade.Process.SelectedTrade == null
                         ? new MachineFeedback(MachineFeedbackState.NeedsInput, MachineFeedbackPort.InputA,
-                            "Choose a trade", "Click the Trade Building to select Egg or Milk.")
+                            "Choose a trade", "Click the Chicken Trading Center and select Garden Lunch for Egg.")
                         : MachineFeedbackResolver.Processor(false, false, false,
                             trade.Process.PendingOutput == 0);
                 }
@@ -816,11 +866,16 @@ namespace CozyFoodFactory.Buildings
                 factoryCamera = Camera.main.GetComponent<FactoryCameraController>();
             WorldInformationLevel level = factoryCamera?.InformationLevel ??
                 WorldInformationLevel.Close;
-            if (market != null && market.TryGetComponent(
-                    out MachineVisualAnimator marketAnimation))
-                marketAnimation.SetInformationLevel(level,
-                    hoverHighlight.HoveredCell == market.InputCell &&
-                    !IsPointerOverInterface);
+            if (market != null)
+            {
+                Vector2Int hovered = hoverHighlight.HoveredCell - market.AnchorCell;
+                bool detail = hovered.x >= 0 && hovered.y >= 0 &&
+                    hovered.x < market.Footprint.x && hovered.y < market.Footprint.y &&
+                    !IsPointerOverInterface;
+                market.SetInformationLevel(level, detail);
+                if (market.TryGetComponent(out MachineVisualAnimator marketAnimation))
+                    marketAnimation.SetInformationLevel(level, detail);
+            }
             occupancy.TryGetBuilding(hoverHighlight.HoveredCell,
                 out BuildingPlacement hoveredPlacement);
             foreach (KeyValuePair<BuildingPlacement, PlacedBuilding> entry in buildingInstances)
@@ -995,7 +1050,8 @@ namespace CozyFoodFactory.Buildings
             constructionMessage = "Choose a destination for the cut selection.";
         }
 
-        private bool CanCutDemoSources(IReadOnlyList<BuildingPlacement> sources)
+        private bool CanCutDemoSources(IReadOnlyList<BuildingPlacement> sources,
+            bool deleting = false)
         {
             var removedPropertyCells = new List<Vector2Int>();
             foreach (BuildingPlacement source in sources)
@@ -1012,7 +1068,7 @@ namespace CozyFoodFactory.Buildings
                         constructionMessage = "Select the covering Harvester with its Farm Plot.";
                         return false;
                     }
-                    if (HasActiveDemoItems(building.gameObject))
+                    if (!deleting && HasActiveDemoItems(building.gameObject))
                     {
                         constructionMessage = $"Empty {source.DefinitionId} before cutting it.";
                         return false;
@@ -1265,6 +1321,7 @@ namespace CozyFoodFactory.Buildings
                 Vector2Int cell = anchor + item.Offset;
                 BuildingDefinition definition = item.Option.Definition;
                 if (IsMachineLocked(item.Option) ||
+                    !CanBuildInTerritory(item.Option, cell, item.Rotation) ||
                     !occupancy.CanPlace(definition, cell, item.Rotation) ||
                     !CanSatisfyPlacementBehavior(item.Option, cell, item.Rotation))
                     return false;
@@ -1297,6 +1354,7 @@ namespace CozyFoodFactory.Buildings
                     FarmPlot.GetAt(farm) != null &&
                     occupancy.TryGetBuilding(farm, out BuildingPlacement top) && top == plot;
                 if (!copiedPlot && !existingPlot ||
+                    !CanBuildInTerritory(item.Option, cell, item.Rotation) ||
                     !copiedPlot && !occupancy.CanPlaceOver(cell,
                         item.Option.Definition.Footprint, item.Rotation, farm, plot))
                     return false;
@@ -1306,7 +1364,8 @@ namespace CozyFoodFactory.Buildings
                 {
                     if (!overlay.Add(candidateCell)) return false;
                     if (candidateCell == farm) continue;
-                    if (!occupancy.CanPlace(candidateCell, Vector2Int.one,
+                    if (!IsBuildableTerritoryCell(candidateCell) ||
+                        !occupancy.CanPlace(candidateCell, Vector2Int.one,
                             BuildingRotation.Degrees0) || !occupied.Add(candidateCell))
                         return false;
                 }
@@ -1573,7 +1632,15 @@ namespace CozyFoodFactory.Buildings
                     .Concat(desired.Buildings).ToArray(),
                 connections = live.connections.Where(item =>
                     !expectedConnectionKeys.Contains(ConstructionLayout.ConnectionKey(item)))
-                    .Concat(desired.Connections).ToArray()
+                    .Concat(desired.Connections).ToArray(),
+                worldSeed = live.worldSeed,
+                territoryGenerationVersion = live.territoryGenerationVersion,
+                territoryPurchaseCount = live.territoryPurchaseCount,
+                reservedHubTerritory = live.reservedHubTerritory,
+                startingTerritory = live.startingTerritory,
+                purchasedTerritories = live.purchasedTerritories,
+                propertySources = live.propertySources,
+                generatedTerritories = live.generatedTerritories
             };
             try
             {
@@ -1732,6 +1799,7 @@ namespace CozyFoodFactory.Buildings
                 market.FoodDelivered -= OnFoodDelivered;
                 if (marketPanel != null) marketPanel.GameSaved -= OnGameSaved;
             }
+            if (market != null) market.Territories.Purchased -= OnTerritoryPurchased;
             ClearRemovalOutline();
             if (removalOutlineMaterial != null)
                 Destroy(removalOutlineMaterial);
@@ -1848,7 +1916,7 @@ namespace CozyFoodFactory.Buildings
             if (Keyboard.current.deleteKey.wasPressedThisFrame)
             {
                 var selected = new List<BuildingPlacement>(selection.SelectedPlacements);
-                if (foodDemoControls && !CanCutDemoSources(selected)) return true;
+                if (foodDemoControls && !CanCutDemoSources(selected, deleting: true)) return true;
                 ConstructionLayout before = foodDemoControls
                     ? CaptureConstructionLayout() : null;
                 bool previous = suppressConstructionHistory;
@@ -2325,12 +2393,27 @@ namespace CozyFoodFactory.Buildings
                 rotation);
         }
 
+        private bool IsBuildableTerritoryCell(Vector2Int cell) => market != null &&
+            market.Territories.IsBuildableCell(cell);
+
+        private bool CanBuildInTerritory(BuildingPlacementOption option,
+            Vector2Int anchor, BuildingRotation rotation)
+        {
+            if (market == null) return true;
+            BuildingDefinition definition = option.Definition;
+            return market.Territories.ContainsBuildableFootprint(
+                anchor, definition.Footprint, rotation);
+        }
+
         private bool CanPlaceBuilding(
             BuildingPlacementOption option,
             Vector2Int anchorCell,
             BuildingRotation rotation)
         {
             BuildingDefinition definition = option.Definition;
+            bool territoryAllowsFootprint = CanBuildInTerritory(option, anchorCell, rotation);
+            if (!territoryAllowsFootprint)
+                return false;
             if (option.PlacementBehavior is HarvesterPlacementBehavior)
             {
                 return CanSatisfyPlacementBehavior(option, anchorCell, rotation) &&
@@ -2629,10 +2712,10 @@ namespace CozyFoodFactory.Buildings
             }
         }
         private Rect SystemRect => new(
-            (Screen.width - Mathf.Min(280f, Screen.width - 16f)) * 0.5f,
-            (Screen.height - Mathf.Min(300f, Screen.height - 16f)) * 0.5f,
-            Mathf.Min(280f, Screen.width - 16f),
-            Mathf.Min(300f, Screen.height - 16f));
+            (Screen.width - Mathf.Min(340f, Screen.width - 16f)) * 0.5f,
+            (Screen.height - Mathf.Min(480f, Screen.height - 16f)) * 0.5f,
+            Mathf.Min(340f, Screen.width - 16f),
+            Mathf.Min(480f, Screen.height - 16f));
         private Vector2 GetGuiPointer()
         {
             Vector2 pointer = Mouse.current?.position.ReadValue() ?? Vector2.zero;
@@ -2675,11 +2758,11 @@ namespace CozyFoodFactory.Buildings
             get
             {
                 Vector3 screen = UnityEngine.Camera.main.WorldToScreenPoint(tradePickerBuilding.transform.position);
-                float height = 42f + tradePickerBuilding.Process.Recipes.Count * 27f +
-                    (tradePickerBuilding.Process.CanChangeTrade ? 0f : 44f);
-                return new Rect(Mathf.Clamp(screen.x + 18f, 8f, Mathf.Max(8f, Screen.width - 184f)),
+                float height = 112f + tradePickerBuilding.Process.Recipes.Count * 27f +
+                    (tradePickerBuilding.Process.CanChangeTrade ? 0f : 24f);
+                return new Rect(Mathf.Clamp(screen.x + 18f, 8f, Mathf.Max(8f, Screen.width - 244f)),
                     Mathf.Clamp(Screen.height - screen.y - height * .5f, 8f,
-                        Mathf.Max(8f, Screen.height - height - 8f)), 176f, height);
+                        Mathf.Max(8f, Screen.height - height - 8f)), 236f, height);
             }
         }
         private void DrawTradePicker()
@@ -2688,14 +2771,20 @@ namespace CozyFoodFactory.Buildings
             var process = tradePickerBuilding.Process;
             Rect rect = TradePickerRect;
             GUI.Box(rect, GUIContent.none);
-            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, rect.width - 16f, 22f), "Choose Trade");
+            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, rect.width - 16f, 22f),
+                process.SelectedTrade == null ? "Chicken Village Trade" :
+                    $"Chicken Village: {process.SelectedTrade.Input.Id} x" +
+                    $"{process.SelectedTrade.InputQuantity} for " +
+                    $"{process.SelectedTrade.Output.Id} x{process.SelectedTrade.OutputQuantity}");
+            GUI.Label(new Rect(rect.x + 8f, rect.y + 25f, rect.width - 16f, 24f),
+                "Input ports: left side   Output ports: bottom");
             for (int i = 0; i < process.Recipes.Count; i++)
             {
                 TradeRecipe recipe = process.Recipes[i];
                 bool enabled = GUI.enabled;
                 GUI.enabled = enabled && process.CanChangeTrade;
-                if (GUI.Button(new Rect(rect.x + 8f, rect.y + 30f + i * 27f,
-                    rect.width - 16f, 24f), new GUIContent(recipe.Output.Id, recipe.Label)))
+                if (GUI.Button(new Rect(rect.x + 8f, rect.y + 50f + i * 27f,
+                    rect.width - 16f, 24f), new GUIContent(recipe.Label)))
                 {
                     ConstructionLayout before = CaptureConstructionLayout();
                     process.Select(recipe.Id);
@@ -2706,10 +2795,22 @@ namespace CozyFoodFactory.Buildings
                 }
                 GUI.enabled = enabled;
             }
+            if (process.SelectedTrade != null)
+            {
+                string status = process.PendingOutput > 0
+                    ? tradePickerBuilding.OutputBlocked
+                        ? $"{process.SelectedTrade.Output.Id} output blocked; " +
+                            $"{process.PendingOutput} buffered"
+                        : $"{process.PendingOutput} {process.SelectedTrade.Output.Id} ready at bottom port"
+                    : process.BufferedInput > 0
+                        ? $"Waiting for {process.SelectedTrade.InputQuantity - process.BufferedInput} " +
+                            $"more {process.SelectedTrade.Input.Id}"
+                        : $"Waiting for {process.SelectedTrade.Input.Id} input";
+                GUI.Label(new Rect(rect.x + 8f, rect.yMax - 49f, rect.width - 16f, 24f), status);
+            }
             if (!process.CanChangeTrade)
-                GUI.Label(new Rect(rect.x + 8f, rect.y + 30f + process.Recipes.Count * 27f,
-                    rect.width - 16f, 44f), "Drain items first.\n" +
-                    $"In: {process.BufferedInput}  Out: {process.PendingOutput}");
+                GUI.Label(new Rect(rect.x + 8f, rect.yMax - 22f, rect.width - 16f, 20f),
+                    "Drain buffered items before changing trade.");
             if (!string.IsNullOrEmpty(GUI.tooltip))
                 GUI.Box(new Rect(rect.x, rect.yMax + 4f, 250f, 26f), GUI.tooltip);
         }
@@ -2786,13 +2887,19 @@ namespace CozyFoodFactory.Buildings
             GUI.enabled = previousEnabled && !BlocksAllWorldInput &&
                 !IsPointerOverForegroundPanel();
             GUI.Label(new Rect(12f, 8f, 180f, 22f), $"$ {market.Currency}");
-            GUI.Label(new Rect(12f, 28f, 180f, 22f), secondaryResourceText);
+            GUI.Label(new Rect(12f, 28f, 220f, 22f),
+                $"Expand: {market.Territories.NextPurchaseCost}  |  " +
+                $"Owned: {market.Territories.PurchasedCoordinates.Count}");
             Vector2Int regionCell = Camera.main != null
                 ? gridSystem.WorldToGrid(Camera.main.transform.position)
                 : hoverHighlight.HoveredCell;
-            FarmableRegion region = market.Regions?.GetRegionAt(regionCell);
-            GUI.Label(new Rect(12f, 48f, 180f, 22f),
-                region?.DisplayName ?? market.Regions?.Regions.FirstOrDefault()?.DisplayName ?? "");
+            Vector2Int territoryCoordinate = market.Territories.CoordinateAtCell(regionCell);
+            string territoryLabel = market.Territories.IsReservedHub(territoryCoordinate)
+                ? "Reserved Hub / Market parcel"
+                : market.Territories.IsPurchased(territoryCoordinate)
+                    ? $"Owned territory {territoryCoordinate.x}, {territoryCoordinate.y}"
+                    : $"Unowned territory {territoryCoordinate.x}, {territoryCoordinate.y}";
+            GUI.Label(new Rect(12f, 48f, 220f, 22f), territoryLabel);
             if (selection.SelectedPlacements.Count > 0)
             {
                 GUI.Box(new Rect(12f, 72f, 144f, 25f),
@@ -2847,7 +2954,7 @@ namespace CozyFoodFactory.Buildings
             {
                 string name = GetSelectedOption()?.Definition?.Id ?? "Build";
                 GUI.Label(new Rect(hotbar.x, hotbar.y - 42f, hotbar.width, 40f),
-                    $"{name}  |  {(isPlacementModeActive ? "R Rotate  ·  " : "")}Esc / Right Click Cancel");
+                    $"{name}  |  {(isPlacementModeActive ? "R Rotate  쨌  " : "")}Esc / Right Click Cancel");
             }
             else if (!string.IsNullOrEmpty(constructionMessage))
                 GUI.Label(new Rect(hotbar.x, hotbar.y - 42f, hotbar.width, 40f),
@@ -2954,7 +3061,9 @@ namespace CozyFoodFactory.Buildings
                 bool locked = IsMachineLocked(option);
                 bool enabled = GUI.enabled;
                 GUI.enabled = enabled && !locked;
-                string label = option.Definition.Id +
+                string displayName = option.Definition.Id == nameof(TradeBuilding)
+                    ? "Chicken Trading Center" : option.Definition.Id;
+                string label = displayName +
                     (market.Unlocks.IsNew(UnlockKey.MachineCategory,
                         option.Definition.Id) ? "  NEW" : "");
                 if (GUILayout.Button(label)) SelectBuilding(index);
@@ -3251,32 +3360,77 @@ namespace CozyFoodFactory.Buildings
             GUILayout.BeginArea(new Rect(rect.x + 12f, rect.y + 10f,
                 rect.width - 24f, rect.height - 20f));
             GUILayout.Label("SYSTEM");
-            if (loadConfirmationOpen || quitConfirmationOpen)
+            if (loadConfirmationOpen || saveConfirmationOpen ||
+                newGameConfirmationOpen || quitConfirmationOpen)
             {
-                GUILayout.Label(loadConfirmationOpen
-                    ? "Load saved game? Unsaved progress may be lost."
-                    : "Quit? Unsaved progress may be lost.");
+                string prompt = loadConfirmationOpen
+                    ? $"Load Slot {marketPanel?.SelectedSaveSlot}? Unsaved progress may be lost."
+                    : saveConfirmationOpen
+                        ? $"Overwrite Slot {marketPanel?.ActiveSaveSlot}?"
+                        : newGameConfirmationOpen
+                            ? $"Start a new game in Slot {marketPanel?.SelectedSaveSlot}? Its saved factory will be reset."
+                            : "Quit? Unsaved progress may be lost.";
+                GUILayout.Label(prompt);
                 if (GUILayout.Button("Cancel"))
-                    loadConfirmationOpen = quitConfirmationOpen = false;
-                if (GUILayout.Button(loadConfirmationOpen ? "Confirm Load" : "Confirm Quit"))
+                    loadConfirmationOpen = saveConfirmationOpen =
+                        newGameConfirmationOpen = quitConfirmationOpen = false;
+                string confirmLabel = loadConfirmationOpen ? "Confirm Load" :
+                    saveConfirmationOpen ? "Confirm Overwrite" :
+                    newGameConfirmationOpen ? "Start New Game" : "Confirm Quit";
+                if (GUILayout.Button(confirmLabel))
                 {
                     if (loadConfirmationOpen)
                     {
                         if (marketPanel?.LoadGame() == true) systemMenuOpen = false;
                     }
+                    else if (saveConfirmationOpen)
+                        marketPanel?.SaveGame();
+                    else if (newGameConfirmationOpen)
+                    {
+                        if (marketPanel?.StartNewGameInSelectedSlot() == true)
+                            systemMenuOpen = false;
+                    }
                     else Application.Quit();
-                    loadConfirmationOpen = quitConfirmationOpen = false;
+                    loadConfirmationOpen = saveConfirmationOpen =
+                        newGameConfirmationOpen = quitConfirmationOpen = false;
                 }
             }
             else
             {
                 if (GUILayout.Button("Resume")) systemMenuOpen = false;
-                if (GUILayout.Button("Save Game") && marketPanel?.SaveGame() == true)
-                    systemMenuOpen = false;
-                if (GUILayout.Button("Load Game")) loadConfirmationOpen = true;
-                GUILayout.Label("Settings: no configurable options yet.");
+                GUILayout.BeginHorizontal();
+                for (int slot = 1; slot <= ProgressionSaveService.SlotCount; slot++)
+                {
+                    if (GUILayout.Button(marketPanel?.SelectedSaveSlot == slot
+                            ? $"[{slot}]" : $"Slot {slot}"))
+                        marketPanel?.SelectSaveSlot(slot);
+                }
+                GUILayout.EndHorizontal();
+                for (int slot = 1; slot <= ProgressionSaveService.SlotCount; slot++)
+                    GUILayout.Label($"Slot {slot}: " +
+                        (marketPanel?.IsSaveSlotOccupied(slot) == true ? "Saved" : "Empty"));
+                GUILayout.Label($"Selected: Slot {marketPanel?.SelectedSaveSlot}  |  " +
+                    $"Active: Slot {marketPanel?.ActiveSaveSlot}");
+                GUILayout.Label(marketPanel?.GetSaveSummary() ?? "No save data available.");
+                if (GUILayout.Button($"Save Active Slot {marketPanel?.ActiveSaveSlot}"))
+                {
+                    if (marketPanel?.IsSaveSlotOccupied(marketPanel.ActiveSaveSlot) == true)
+                        saveConfirmationOpen = true;
+                    else if (marketPanel?.SaveGame() == true) systemMenuOpen = false;
+                }
+                GUI.enabled = marketPanel?.IsSaveSlotOccupied(
+                    marketPanel?.SelectedSaveSlot ?? 1) == true;
+                if (GUILayout.Button($"Load Slot {marketPanel?.SelectedSaveSlot}"))
+                    loadConfirmationOpen = true;
+                GUI.enabled = true;
+                bool selectedSlotOccupied = marketPanel?.IsSaveSlotOccupied(
+                    marketPanel?.SelectedSaveSlot ?? 1) == true;
+                if (GUILayout.Button(selectedSlotOccupied
+                        ? $"Reset Slot {marketPanel?.SelectedSaveSlot} with New Game"
+                        : $"Start New Game in Slot {marketPanel?.SelectedSaveSlot}"))
+                    newGameConfirmationOpen = true;
                 if (GUILayout.Button("Quit")) quitConfirmationOpen = true;
-                GUILayout.Label("SAVE DATA");
+                GUILayout.Label("SAVE SLOTS");
                 GUILayout.Label(marketPanel?.GetSaveSummary() ?? "No save data available.");
             }
             if (!string.IsNullOrEmpty(marketPanel?.SaveMessage))
@@ -3344,7 +3498,8 @@ namespace CozyFoodFactory.Buildings
                 GUILayout.Label($"{requirement.Quantity} {requirement.Food.Id}");
             GUILayout.Label("Order bonus: 0 currency (delivery sales credited separately)");
             foreach (UnlockKey unlock in activeCompletionCard.GrantedUnlocks)
-                GUILayout.Label($"Unlocked {unlock.Category}: {unlock.Id}");
+                GUILayout.Label($"Unlocked {unlock.Category}: " +
+                    (unlock.Id == nameof(TradeBuilding) ? "Chicken Trading Center" : unlock.Id));
             if (activeCompletionCard.GrantedUnlocks.Count == 0)
                 GUILayout.Label("No new unlocks.");
             if (GUILayout.Button("Continue")) ContinueAfterOrder();
@@ -3391,12 +3546,18 @@ namespace CozyFoodFactory.Buildings
             Vector2Int anchor, BuildingRotation rotation)
         {
             BuildingDefinition definition = option.Definition;
-            if (foodDemoControls && definition.Id == nameof(FarmPlot))
+            if (market != null)
             {
-                FarmableRegion region = market?.Regions?.GetRegionAt(anchor);
-                if (region == null) return "Place Farm Plots on farmable land.";
-                if (market.Regions.GetStatus(region.Id) != RegionStatus.Restored)
-                    return "Restore this region before placing a Farm Plot.";
+                TerritorySystem territories = market.Territories;
+                bool allowed = CanBuildInTerritory(option, anchor, rotation);
+                if (!allowed)
+                {
+                    if (territories.IsReservedHub(territories.CoordinateAtCell(anchor)))
+                        return "The Hub/Market parcel is reserved for fixed world infrastructure.";
+                    if (!territories.IsOwnedCell(anchor))
+                        return "Purchase this territory before building here.";
+                    return "The full building footprint must fit inside purchased territory.";
+                }
             }
             if (option.PlacementBehavior is HarvesterPlacementBehavior)
             {
@@ -3460,6 +3621,15 @@ namespace CozyFoodFactory.Buildings
             BuildingPortPreview currentPort, Vector3 currentLocal,
             Vector2Int outward)
         {
+            if (market != null && neighbor.DefinitionId == nameof(Market))
+            {
+                Vector2Int external = gridSystem.WorldToGrid(
+                    placementPreview.transform.TransformPoint(currentLocal) -
+                    (Vector3)(Vector2)outward * gridSystem.CellSize * 0.6f);
+                return currentPort.Kind == BuildingPortKind.Output &&
+                    market.InputPorts.Any(port => port.ExternalCell == external &&
+                        port.IncomingDirection == DirectionForOffset(outward));
+            }
             if (!buildingInstances.TryGetValue(neighbor, out PlacedBuilding instance))
                 return false;
             BuildingPlacementOption option = buildingOptions.FirstOrDefault(candidate =>
@@ -3535,7 +3705,7 @@ namespace CozyFoodFactory.Buildings
         private bool IsMachineLocked(BuildingPlacementOption option) =>
             foodDemoControls && option?.Definition != null &&
             option.Definition.Id is nameof(Processor) or nameof(BasicMixer) or
-                nameof(Cutter) &&
+                nameof(Cutter) or nameof(TradeBuilding) &&
             market?.Unlocks.IsUnlocked(UnlockKey.MachineCategory,
                 option.Definition.Id) != true;
 
