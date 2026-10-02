@@ -113,7 +113,8 @@ namespace CozyFoodFactory.Tests.EditMode
                 BeltCell outputBelt = system.AddBelt(mixer.OutputCell, GridDirection.East);
                 var market = new MarketReceiver(mixer.OutputCell + Vector2Int.right,
                     new MarketInventory());
-                system.RegisterInputReceiver(market);
+                foreach (IItemInputReceiver input in market.InputReceivers)
+                    system.RegisterInputReceiver(input);
                 system.Advance(0f);
                 Assert.That(mixer.HasOutput, Is.False);
                 Assert.That(outputBelt.HasItem, Is.True);

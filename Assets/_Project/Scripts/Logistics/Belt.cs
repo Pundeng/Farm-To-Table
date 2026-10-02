@@ -61,7 +61,8 @@ namespace CozyFoodFactory.Logistics
 
         public void RefreshConnections(int incomingMask)
         {
-            int visible = incomingMask | OutputMask;
+            int activeOutputs = cell?.ConnectedOutputMask ?? OutputMask;
+            int visible = incomingMask | activeOutputs;
             for (int index = 0; index < 4; index++)
             {
                 int bit = 1 << index;
@@ -69,7 +70,7 @@ namespace CozyFoodFactory.Logistics
                     connectionArms[index] = CreateConnectionArm((GridDirection)index);
                 connectionArms[index].SetActive((visible & bit) != 0);
                 connectionArms[index].GetComponent<SpriteRenderer>().color =
-                    (OutputMask & bit) != 0
+                    (activeOutputs & bit) != 0
                         ? new Color(1f, 0.77f, 0.31f, 0.9f)
                         : new Color(0.74f, 0.83f, 0.84f, 0.8f);
             }

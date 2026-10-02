@@ -291,7 +291,7 @@ namespace CozyFoodFactory.UI
                 if (!plot.IsCropUnlocked(crop))
                 {
                     GUILayout.Label($"{crop.Id} (locked: " +
-                        (crop.Id == "Potato" ? "restore East Field" :
+                        (crop.Id == "Potato" ? "complete the Potato unlock objective" :
                          "complete the Market order") + ")");
                 }
                 else if (GUILayout.Button($"Grow {crop.Id}"))

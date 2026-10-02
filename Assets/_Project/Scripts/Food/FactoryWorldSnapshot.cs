@@ -13,6 +13,14 @@ namespace CozyFoodFactory.Food
         public SavedBuilding[] buildings = Array.Empty<SavedBuilding>();
         public SavedPropertyConnection[] connections =
             Array.Empty<SavedPropertyConnection>();
+        public int worldSeed;
+        public int territoryGenerationVersion = TerritoryWorldSettings.GenerationVersion;
+        public int territoryPurchaseCount;
+        public SavedTerritory reservedHubTerritory;
+        public SavedTerritory startingTerritory;
+        public SavedTerritory[] purchasedTerritories = Array.Empty<SavedTerritory>();
+        public SavedPropertySource[] propertySources = Array.Empty<SavedPropertySource>();
+        public SavedTerritory[] generatedTerritories = Array.Empty<SavedTerritory>();
     }
 
     [Serializable]
@@ -309,52 +317,115 @@ namespace CozyFoodFactory.Food
 
         public static void ValidateAgainstScene(FactoryWorldData world,
             IReadOnlyList<BuildingPlacementOption> options,
-            IReadOnlyList<PropertySourceSetup> sources,
-            RegionState regions,
+            TerritoryWorldSettings territorySettings,
             IReadOnlyList<SavedUnlock> savedUnlocks,
             IReadOnlyList<ProcessingRecipe> processingRecipes,
             IReadOnlyList<MixingRecipe> mixingRecipes,
             Vector2Int marketCell,
+            Vector2Int marketFootprint,
             IReadOnlyList<CuttingRecipe> cuttingRecipes = null,
             IReadOnlyList<TradeRecipe> tradeRecipes = null)
         {
             cuttingRecipes ??= Array.Empty<CuttingRecipe>();
             tradeRecipes ??= Array.Empty<TradeRecipe>();
             Validate(world);
-            if (options == null || sources == null || regions == null ||
+            if (options == null || territorySettings == null ||
                 savedUnlocks == null || processingRecipes == null ||
                 mixingRecipes == null)
             {
                 throw new ArgumentNullException("Scene world definitions are missing.");
             }
 
+            if (world.territoryGenerationVersion != TerritoryWorldSettings.GenerationVersion ||
+                world.reservedHubTerritory == null ||
+                world.reservedHubTerritory.Coordinate != territorySettings.HubTerritory ||
+                world.startingTerritory == null ||
+                world.startingTerritory.Coordinate != territorySettings.StartingTerritory ||
+                world.purchasedTerritories == null || world.propertySources == null)
+                throw new ArgumentException("Territory save data is missing or unsupported.");
+            territorySettings.Validate(marketCell, marketFootprint);
+            var territories = new TerritorySystem(territorySettings).Initialize();
+            territories.Restore(world.worldSeed, world.purchasedTerritories,
+                world.territoryPurchaseCount);
+            if (world.generatedTerritories == null)
+                throw new ArgumentException("Generated parcel records are missing.");
+            var generated = new HashSet<Vector2Int>();
+            foreach (SavedTerritory parcel in world.generatedTerritories)
+                if (parcel == null || territories.IsReservedHub(parcel.Coordinate) ||
+                    !generated.Add(parcel.Coordinate) ||
+                    !territories.IsPurchased(parcel.Coordinate) &&
+                        !territories.HasPurchasedNeighbor(parcel.Coordinate))
+                    throw new ArgumentException("Generated parcel records are invalid.");
+            if (!generated.SetEquals(territories.RelevantCoordinates))
+                throw new ArgumentException("Generated parcels must cover owned land and its frontier.");
+            PropertySourceSetup[] savedSources = world.propertySources
+                .Where(source => source != null).Select(source => source.ToSetup())
+                .OrderBy(source => source.cell.x).ThenBy(source => source.cell.y).ToArray();
+            if (savedSources.Length != world.propertySources.Length ||
+                savedSources.Select(source => source.cell).Distinct().Count() != savedSources.Length ||
+                savedSources.Any(source => source.capacity < 1 ||
+                    !Enum.IsDefined(typeof(CookingProperty), source.property) ||
+                    !generated.Contains(territories.CoordinateAtCell(source.cell))))
+                throw new ArgumentException("Saved Property Sources are invalid.");
+            foreach (Vector2Int parcel in generated)
+            {
+                PropertySourceSetup[] patch = savedSources.Where(source =>
+                    territories.CoordinateAtCell(source.cell) == parcel).ToArray();
+                int hubDistance = Math.Abs(parcel.x - territories.ReservedHubTerritory.x) +
+                    Math.Abs(parcel.y - territories.ReservedHubTerritory.y);
+                if (hubDistance <= 1 || parcel == territories.StartingTerritory)
+                {
+                    if (patch.Length != 0)
+                        throw new ArgumentException("The starting core must have no Property Sources.");
+                    continue;
+                }
+                Vector2Int minimum = territories.ParcelMinimumCell(parcel);
+                if (patch.Length < 4 || patch.Length > 6 ||
+                    patch.Any(source => source.cell.x - minimum.x is < 2 or > 6 ||
+                        source.cell.y - minimum.y is < 2 or > 6 ||
+                        source.property != patch[0].property) ||
+                    parcel == territories.StartingTerritory + Vector2Int.right &&
+                        patch[0].property != CookingProperty.Heat ||
+                    parcel == territories.StartingTerritory + Vector2Int.left &&
+                        patch[0].property != CookingProperty.Water)
+                    throw new ArgumentException("Saved Property deposit shape or type is invalid.");
+                var connected = new HashSet<Vector2Int> { patch[0].cell };
+                bool changed;
+                do
+                {
+                    int before = connected.Count;
+                    foreach (PropertySourceSetup source in patch)
+                        if (connected.Any(cell => Math.Abs(cell.x - source.cell.x) +
+                                Math.Abs(cell.y - source.cell.y) == 1)) connected.Add(source.cell);
+                    changed = before != connected.Count;
+                } while (changed);
+                if (connected.Count != patch.Length)
+                    throw new ArgumentException("Saved Property deposit is disconnected.");
+            }
+
+
             var definitions = options.ToDictionary(option => option.Definition.Id,
                 option => option.Definition, StringComparer.Ordinal);
-            var sourceCells = sources.ToDictionary(source => source.cell);
-            var restoredRegions = new HashSet<string>(StringComparer.Ordinal);
+            var sourceCells = savedSources.ToDictionary(source => source.cell);
             var cropUnlocks = new HashSet<string>(StringComparer.Ordinal);
             foreach (SavedUnlock unlock in savedUnlocks)
             {
-                if (unlock?.category == UnlockKey.RegionCategory)
-                {
-                    restoredRegions.Add(unlock.id);
-                }
-                else if (unlock?.category == UnlockKey.CropCategory)
+                if (unlock?.category == UnlockKey.CropCategory)
                 {
                     cropUnlocks.Add(unlock.id);
                 }
             }
 
             var occupancy = new GridOccupancy();
-            if (!occupancy.TryRegister("Market", marketCell, Vector2Int.one,
+            if (!occupancy.TryRegister("Market", marketCell, marketFootprint,
                     BuildingRotation.Degrees0, out _))
             {
                 throw new ArgumentException("Scene fixtures overlap.");
             }
 
-            foreach (Vector2Int fixedCell in sourceCells.Keys)
+            foreach (PropertySourceSetup source in savedSources)
             {
-                if (!occupancy.TryRegister("PropertySource", fixedCell,
+                if (!occupancy.TryRegister("PropertySource", source.cell,
                         Vector2Int.one, BuildingRotation.Degrees0, out _))
                 {
                     throw new ArgumentException("Property source overlaps a fixture.");
@@ -366,7 +437,8 @@ namespace CozyFoodFactory.Food
                 var cell = new Vector2Int(connection.x, connection.y);
                 var sourceCell = new Vector2Int(connection.sourceX,
                     connection.sourceY);
-                if (!sourceCells.TryGetValue(sourceCell, out PropertySourceSetup source) ||
+                if (!territories.IsBuildableCell(cell) ||
+                    !sourceCells.TryGetValue(sourceCell, out PropertySourceSetup source) ||
                     source.property != connection.property ||
                     connection.kind == PropertyConnectionKind.Collector &&
                     Mathf.Abs(cell.x - sourceCell.x) +
@@ -381,9 +453,12 @@ namespace CozyFoodFactory.Food
             foreach (SavedBuilding saved in world.buildings.Where(item =>
                 item.definitionId != nameof(Harvester)))
             {
+                Vector2Int anchor = new(saved.x, saved.y);
                 if (!definitions.TryGetValue(saved.definitionId,
                         out BuildingDefinition definition) ||
-                    !occupancy.TryRegister(definition, new Vector2Int(saved.x, saved.y),
+                    !territories.ContainsBuildableFootprint(anchor,
+                        definition.Footprint, saved.rotation) ||
+                    !occupancy.TryRegister(definition, anchor,
                         saved.rotation, out _))
                 {
                     throw new ArgumentException("Building conflicts with the scene.");
@@ -391,13 +466,6 @@ namespace CozyFoodFactory.Food
 
                 if (saved.farmPlot != null)
                 {
-                    Vector2Int cell = new(saved.x, saved.y);
-                    if (!regions.Regions.Any(region =>
-                            restoredRegions.Contains(region.Id) && region.Contains(cell)))
-                    {
-                        throw new ArgumentException("Farm Plot is outside restored farmland.");
-                    }
-
                     if (!string.IsNullOrEmpty(saved.farmPlot.cropId))
                     {
                         FarmPlot plot = definition.InstancePrefab?.GetComponent<FarmPlot>();
@@ -421,7 +489,7 @@ namespace CozyFoodFactory.Food
 
                 if (saved.belt != null && saved.belt.item != null &&
                     !IsAuthoredFood(saved.belt.item, options, processingRecipes,
-                        mixingRecipes, cuttingRecipes))
+                        mixingRecipes, cuttingRecipes, tradeRecipes))
                 {
                     throw new ArgumentException("Belt item is not authored in this scene.");
                 }
@@ -475,6 +543,9 @@ namespace CozyFoodFactory.Food
                     throw new ArgumentException("Harvester definition is unavailable.");
                 }
                 Vector2Int anchor = new(saved.x, saved.y);
+                if (!territories.ContainsBuildableFootprint(anchor,
+                        definition.Footprint, saved.rotation))
+                    throw new ArgumentException("Harvester is outside purchased territory.");
                 Vector2Int farmCell = HarvesterPlacementBehavior.GetFarmCell(
                     anchor, definition.Footprint, saved.rotation);
                 if (!occupancy.TryGetUnderlyingBuilding(farmCell,
@@ -492,7 +563,7 @@ namespace CozyFoodFactory.Food
                     saved.harvester.outputs.Length > prefab.OutputCapacity ||
                     saved.harvester.outputs.Any(food =>
                         !IsAuthoredFood(food, options, processingRecipes,
-                            mixingRecipes, cuttingRecipes)))
+                            mixingRecipes, cuttingRecipes, tradeRecipes)))
                 {
                     throw new ArgumentException("Harvester output is unavailable.");
                 }
@@ -503,9 +574,11 @@ namespace CozyFoodFactory.Food
             IReadOnlyList<BuildingPlacementOption> options,
             IReadOnlyList<ProcessingRecipe> processingRecipes,
             IReadOnlyList<MixingRecipe> mixingRecipes,
-            IReadOnlyList<CuttingRecipe> cuttingRecipes)
+            IReadOnlyList<CuttingRecipe> cuttingRecipes,
+            IReadOnlyList<TradeRecipe> tradeRecipes)
         {
-            if (processingRecipes.Any(recipe => Matches(recipe.Input, food) ||
+            if (tradeRecipes.Any(recipe => Matches(recipe.Input, food) || Matches(recipe.Output, food)) ||
+                processingRecipes.Any(recipe => Matches(recipe.Input, food) ||
                     Matches(recipe.Output, food)) ||
                 mixingRecipes.Any(recipe => Matches(recipe.IngredientA, food) ||
                     Matches(recipe.IngredientB, food) || Matches(recipe.Output, food)) ||

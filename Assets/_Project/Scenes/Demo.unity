@@ -692,7 +692,6 @@ MonoBehaviour:
   engraverUpgradePanel: {fileID: 6011}
   market: {fileID: 200000002}
   foodDemoControls: 1
-  secondaryResourceText: 0
   buildingOptions:
   - definition:
       id: Belt
@@ -782,19 +781,6 @@ MonoBehaviour:
       visualPrefab: {fileID: 0}
       placedColor: {r: 0.68, g: 0.56, b: 0.82, a: 1}
     placementBehavior: {fileID: 0}
-  propertySources:
-  - property: 0
-    cell: {x: -6, y: 5}
-    capacity: 4
-  - property: 1
-    cell: {x: -6, y: 2}
-    capacity: 4
-  - property: 2
-    cell: {x: -6, y: -1}
-    capacity: 4
-  - property: 3
-    cell: {x: -6, y: -4}
-    capacity: 4
   propertyVisuals:
     source: {fileID: 0}
     collector: {fileID: 0}
@@ -866,6 +852,18 @@ MonoBehaviour:
       id: Garden Lunch
       kind: 1
       sellValue: 1
+  - ingredientA:
+      id: Egg
+      kind: 0
+      sellValue: 1
+    ingredientB:
+      id: Tomato Sauce
+      kind: 1
+      sellValue: 1
+    output:
+      id: Tomato Omelette
+      kind: 1
+      sellValue: 1
   cutterRecipes:
   - input:
       id: potato
@@ -880,30 +878,19 @@ MonoBehaviour:
   invalidIssueDelay: 0.75
   blockedIssueDelay: 0.75
   tradeRecipes:
-  - id: demo-egg
-    villageId: demo-village
+  - id: chicken-garden-egg
+    villageId: chicken-village
     input:
-      id: Dried Apple
+      id: Garden Lunch
       kind: 1
-      sellValue: 2
-    inputQuantity: 3
+      sellValue: 1
+    inputQuantity: 1
     output:
       id: Egg
       kind: 0
       sellValue: 1
     outputQuantity: 2
-  - id: demo-milk
-    villageId: demo-village
-    input:
-      id: Dried Apple
-      kind: 1
-      sellValue: 2
-    inputQuantity: 3
-    output:
-      id: Milk
-      kind: 0
-      sellValue: 1
-    outputQuantity: 2
+  tradeVillageId: chicken-village
 --- !u!114 &6004
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -993,7 +980,7 @@ Transform:
   m_GameObject: {fileID: 200000000}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 10.5, y: 4.5, z: 0}
+  m_LocalPosition: {x: 4.5, y: 4.5, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1013,7 +1000,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: CozyFoodFactory.Runtime::CozyFoodFactory.Food.Market
   transportCoordinator: {fileID: 362208087}
   visualSprite: {fileID: 0}
-  inputCell: {x: 10, y: 4}
+  visualPrefab: {fileID: 0}
+  anchorCell: {x: 2, y: 2}
   lastDeliveryDebug: 
   orders:
   - id: O1
@@ -1053,8 +1041,8 @@ MonoBehaviour:
     unlocks:
     - category: machine
       id: Cutter
-    - category: region_access
-      id: East Field
+    - category: crop
+      id: Potato
   - id: O4
     displayName: Potato Slice
     requirements:
@@ -1100,57 +1088,50 @@ MonoBehaviour:
         sellValue: 1
       quantity: 400
     unlocks:
+    - category: machine
+      id: TradeBuilding
+  - id: O9
+    displayName: Eggs
+    requirements:
+    - food:
+        id: Egg
+        kind: 0
+        sellValue: 1
+      quantity: 500
+    unlocks: []
+  - id: O10
+    displayName: Tomato Omelette
+    requirements:
+    - food:
+        id: Tomato Omelette
+        kind: 1
+        sellValue: 1
+      quantity: 700
+    unlocks:
     - category: chapter
-      id: vegetable_complete
+      id: chapter_1_complete
   seedOffers: []
-  farmableRegions:
-  - id: Starter Fields
-    displayName: Starter Fields
-    minimumCell: {x: -5, y: -4}
-    size: {x: 10, y: 9}
-    initiallyRestored: 1
-    requiredUnlockCategory: 
-    requiredUnlockId: 
-    restorationUnlocks: []
-    price: 0
-  - id: East Field
-    displayName: East Field
-    minimumCell: {x: 5, y: -4}
-    size: {x: 4, y: 9}
-    initiallyRestored: 0
-    requiredUnlockCategory: region_access
-    requiredUnlockId: East Field
-    restorationUnlocks:
-    - category: crop
-      id: Potato
-    price: 5
-  - id: West Meadow
-    displayName: West Meadow
-    minimumCell: {x: -9, y: -4}
-    size: {x: 4, y: 9}
-    initiallyRestored: 0
-    requiredUnlockCategory: 
-    requiredUnlockId: 
-    restorationUnlocks: []
-    price: 3
-  - id: North Terrace
-    displayName: North Terrace
-    minimumCell: {x: -5, y: 5}
-    size: {x: 10, y: 4}
-    initiallyRestored: 0
-    requiredUnlockCategory: 
-    requiredUnlockId: 
-    restorationUnlocks: []
-    price: 4
-  - id: South Orchard
-    displayName: South Orchard
-    minimumCell: {x: -5, y: -8}
-    size: {x: 10, y: 4}
-    initiallyRestored: 0
-    requiredUnlockCategory: 
-    requiredUnlockId: 
-    restorationUnlocks: []
-    price: 4
+  territorySettings:
+    worldSeed: 428173
+    hubParcelMinimumCell: {x: 0, y: 0}
+    hubTerritory: {x: 0, y: 0}
+    startingTerritory: {x: 0, y: -1}
+    expansionCosts: [100, 180, 320, 550, 900, 1500]
+    nearFrontier:
+      heat: 0.45
+      water: 0.45
+      time: 0.05
+      cold: 0.05
+    middleDistance:
+      heat: 0.35
+      water: 0.35
+      time: 0.15
+      cold: 0.15
+    farDistance:
+      heat: 0.2
+      water: 0.2
+      time: 0.3
+      cold: 0.3
 --- !u!114 &200000003
 MonoBehaviour:
   m_ObjectHideFlags: 0

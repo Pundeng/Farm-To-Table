@@ -44,6 +44,7 @@ namespace CozyFoodFactory.Logistics
             Cell = cell;
             Direction = direction;
             OutputMask = Bit(direction);
+            ConnectedOutputMask = OutputMask;
         }
 
         public Vector2Int Cell { get; }
@@ -51,6 +52,9 @@ namespace CozyFoodFactory.Logistics
         public GridDirection Direction { get; }
 
         public int OutputMask { get; private set; }
+        public int ConnectedOutputMask { get; private set; }
+        public int ConnectedInputMask { get; private set; }
+        internal event Action TopologyChanged;
 
         public int NextOutputIndex { get; private set; }
 
@@ -81,6 +85,21 @@ namespace CozyFoodFactory.Logistics
                 throw new ArgumentOutOfRangeException(nameof(mask));
             OutputMask = mask;
             NextOutputIndex = nextOutputIndex;
+            TopologyChanged?.Invoke();
+        }
+
+        internal void SetConnectedTopology(int inputMask, int outputMask)
+        {
+            ConnectedInputMask = inputMask;
+            ConnectedOutputMask = outputMask;
+            if ((outputMask & (1 << NextOutputIndex)) != 0) return;
+            for (int offset = 0; offset < 4; offset++)
+            {
+                int candidate = (NextOutputIndex + offset) & 3;
+                if ((outputMask & (1 << candidate)) == 0) continue;
+                NextOutputIndex = candidate;
+                return;
+            }
         }
 
         internal void AdvanceOutputCursor(GridDirection usedDirection) =>

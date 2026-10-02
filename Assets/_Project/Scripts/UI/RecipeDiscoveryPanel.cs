@@ -392,12 +392,6 @@ namespace CozyFoodFactory.UI
         {
             Market market = controller.Market;
             if (market == null) return;
-            if (market.Regions?.Regions != null)
-                foreach (FarmableRegion region in market.Regions.Regions)
-                    if (region.RestorationUnlocks.Any(key =>
-                            key.Category == UnlockKey.CropCategory && key.Id == food.Id) &&
-                        market.Regions.GetStatus(region.Id) != RegionStatus.Restored)
-                        GUILayout.Label($"Restore {region.DisplayName} to grow {food.Id}.");
             foreach (FoodOrder order in market.Orders)
                 if (order.Unlocks.Any(key =>
                         key.Category == UnlockKey.CropCategory && key.Id == food.Id) &&

@@ -13,27 +13,31 @@ namespace CozyFoodFactory.Food
     {
         [SerializeField] private Market market = null;
         [SerializeField] private BuildingPlacementController buildings = null;
+        private readonly List<SpriteRenderer> territoryFills = new();
         private Vector2 scrollPosition;
         private Vector2 objectiveScroll;
         private Vector2 detailScroll;
+        private Vector2 territoryScroll;
         private enum MarketSection { Current, Seeds, Sales, History }
         private MarketSection section;
         private float orderFeedbackUntil;
-        private float regionFeedbackUntil;
-        private string restoredRegionName;
-        private Vector2 regionScroll;
         private ProgressionSaveService saves;
         private string saveMessage;
         private DateTime cachedSaveWriteUtc;
         private string cachedSaveSummary;
-        private string selectedRegionId;
+        private string cachedSavePath;
+        private Vector2Int? selectedTerritory;
+        private int selectedSaveSlot = 1;
         private string regionMessage;
         private Vector2 objectiveAnchor;
         private bool objectiveAnchorValid;
-        private GameObject regionVisualRoot;
-        private readonly Dictionary<string, SpriteRenderer> regionVisuals = new();
+        private Rect objectiveWorldRect;
         public event Action GameSaved;
-        private string SavePath => ProgressionSaveService.DemoPath;
+        private string ActiveSavePath => ProgressionSaveService.SlotPath(
+            ProgressionSaveSlotSession.ActiveSlot);
+        private string SelectedSavePath => ProgressionSaveService.SlotPath(selectedSaveSlot);
+
+        private void OnEnable() => selectedSaveSlot = ProgressionSaveSlotSession.ActiveSlot;
 
         public bool IsPointerOverPanel
         {
@@ -64,6 +68,7 @@ namespace CozyFoodFactory.Food
 
             if (buildings != null && buildings.IsFoodDemo)
             {
+                DrawTerritoryOverlays();
                 DrawWorldObjective();
                 bool originalEnabled = GUI.enabled;
                 if (buildings.BlocksAllWorldInput) GUI.enabled = false;
@@ -74,12 +79,13 @@ namespace CozyFoodFactory.Food
                 }
                 DrawWorldFeedback();
                 if (buildings.OpenDemoPanel == BuildingPlacementController.DemoPanel.Region)
-                    DrawRegionPanel();
+                    DrawTerritoryPanel();
                 GUI.enabled = originalEnabled;
                 return;
             }
 
-            DrawRegionPanel();
+            DrawTerritoryOverlays();
+            DrawTerritoryPanel();
 
             Rect rect = GetPanelRect();
             GUI.Box(rect, GUIContent.none);
@@ -90,7 +96,7 @@ namespace CozyFoodFactory.Food
             if (buildings != null && buildings.IsFoodDemo)
             {
                 var guidanceStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
-                GUILayout.Label(market.Unlocks.IsUnlocked("chapter", "vegetable_complete")
+                GUILayout.Label(market.Unlocks.IsUnlocked("chapter", "chapter_1_complete")
                     ? "CHAPTER 1 COMPLETE — Vegetable Automation!"
                     : GetDemoGuidance(), guidanceStyle);
             }
@@ -122,7 +128,7 @@ namespace CozyFoodFactory.Food
                 GUILayout.Label($"Completed: {completed.DisplayName}");
                 foreach (UnlockKey unlock in completed.Unlocks)
                 {
-                    GUILayout.Label($"Unlocked {unlock.Category}: {unlock.Id}");
+                    GUILayout.Label($"Unlocked {unlock.Category}: {UnlockDisplayName(unlock)}");
                 }
             }
 
@@ -175,30 +181,15 @@ namespace CozyFoodFactory.Food
                 }
             }
 
-            RegionState regions = market.Regions;
-            if (regions != null && regions.Regions.Count > 0)
-            {
-                GUILayout.Space(6f);
-                GUILayout.Label("Farmable Regions");
-                GUILayout.Label("Green restored, olive available, blue needs currency, " +
-                    "gray needs progression; dark ground is not farmable.");
-                foreach (FarmableRegion region in regions.Regions)
-                {
-                    string area = $"({region.MinimumCell.x}.." +
-                        $"{region.MinimumCell.x + region.Size.x - 1}, " +
-                        $"{region.MinimumCell.y}.." +
-                        $"{region.MinimumCell.y + region.Size.y - 1})";
-                    if (GUILayout.Button($"Inspect {region.DisplayName} {area}: " +
-                            regions.GetPurchaseStatus(region.Id, market.Currency)))
-                        selectedRegionId = region.Id;
-                }
-            }
+            GUILayout.Space(6f);
+            GUILayout.Label($"Territories: {market.Territories.PurchasedCoordinates.Count} " +
+                $"owned  |  Next expansion: {market.Territories.NextPurchaseCost}");
 
             GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 
-        public bool IsPointerOverRegionPanel => selectedRegionId != null &&
+        public bool IsPointerOverRegionPanel => selectedTerritory.HasValue &&
             Mouse.current != null && GetRegionPanelRect().Contains(
                 new Vector2(Mouse.current.position.ReadValue().x,
                     Screen.height - Mouse.current.position.ReadValue().y));
@@ -211,20 +202,32 @@ namespace CozyFoodFactory.Food
         public bool TrySelectRegionAt(Vector2Int cell, bool placementMode,
             bool occupied)
         {
-            FarmableRegion region = market?.Regions?.GetRegionAt(cell);
-            if (region == null || !ShouldConsumeRegionClick(
-                    market.Regions.GetStatus(region.Id), placementMode, occupied,
-                    Keyboard.current?.altKey.isPressed == true))
+            if (market == null || occupied) return false;
+            Vector2Int coordinate = market.Territories.CoordinateAtCell(cell);
+            if (market.Territories.IsPurchased(coordinate) ||
+                market.Territories.IsReservedHub(coordinate)) return false;
+            if (market.Territories.GetPurchaseStatus(coordinate,
+                    market.Currency) == TerritoryPurchaseStatus.NotAdjacent)
                 return false;
-            selectedRegionId = region.Id;
+            selectedTerritory = coordinate;
             regionMessage = null;
             return true;
+        }
+
+        public bool IsPointerOverTerritoryUi => Mouse.current != null &&
+            GetTerritoryActionRectAtPointer(GetGuiPointer(), out _);
+
+        private static Vector2 GetGuiPointer()
+        {
+            Vector2 pointer = Mouse.current?.position.ReadValue() ?? Vector2.zero;
+            pointer.y = Screen.height - pointer.y;
+            return pointer;
         }
 
         public bool TryOpenAt(Vector2Int cell)
         {
             if (market == null) return false;
-            Vector2Int origin = market.InputCell;
+            Vector2Int origin = market.AnchorCell;
             Vector2Int size = market.Footprint;
             return IsPointerOverWorldObjective ||
                 cell.x >= origin.x && cell.y >= origin.y &&
@@ -239,12 +242,11 @@ namespace CozyFoodFactory.Food
                     Camera.main.orthographicSize > 15f) return false;
                 Vector2 pointer = Mouse.current.position.ReadValue();
                 pointer.y = Screen.height - pointer.y;
-                return new Rect(objectiveAnchor.x - 85f,
-                    objectiveAnchor.y - 44f, 170f, 48f).Contains(pointer);
+                return objectiveWorldRect.Contains(pointer);
             }
         }
 
-        public void CloseRegion() => selectedRegionId = null;
+        public void CloseRegion() => selectedTerritory = null;
         public void OpenCurrentOrder() => section = MarketSection.Current;
         public void ShowOrderCompletion() => orderFeedbackUntil = Time.time + 3f;
         public string SaveMessage => saveMessage ?? FactoryWorldLoadSession.LastMessage;
@@ -253,7 +255,7 @@ namespace CozyFoodFactory.Food
         {
             if (market == null || buildings == null) return false;
             saves ??= new ProgressionSaveService(market, buildings);
-            bool saved = saves.TrySave(SavePath, out string error);
+            bool saved = saves.TrySave(ActiveSavePath, out string error);
             saveMessage = saved ?
                 "Factory saved." : $"Save failed: {error}";
             if (saved) cachedSaveSummary = null;
@@ -264,49 +266,92 @@ namespace CozyFoodFactory.Food
         public string GetSaveSummary()
         {
             if (market == null || buildings == null) return "Save unavailable.";
-            if (!File.Exists(SavePath))
-                return File.Exists(ProgressionSaveService.LegacyDemoPath)
-                    ? "Chapter 1 starts a new save. The previous Demo save is preserved."
-                    : "No saved game.";
-            DateTime writeUtc = File.GetLastWriteTimeUtc(SavePath);
-            if (cachedSaveSummary != null && cachedSaveWriteUtc == writeUtc)
+            return GetSaveSlotSummary(selectedSaveSlot);
+        }
+
+        public bool IsSaveSlotOccupied(int slot) =>
+            File.Exists(ProgressionSaveService.SlotPath(slot));
+
+        public int SelectedSaveSlot => selectedSaveSlot;
+        public int ActiveSaveSlot => ProgressionSaveSlotSession.ActiveSlot;
+        public void SelectSaveSlot(int slot)
+        {
+            if (slot < 1 || slot > ProgressionSaveService.SlotCount)
+                throw new ArgumentOutOfRangeException(nameof(slot));
+            selectedSaveSlot = slot;
+            cachedSavePath = null;
+        }
+
+        public bool StartNewGameInSelectedSlot()
+        {
+            int previousSlot = ProgressionSaveSlotSession.ActiveSlot;
+            ProgressionSaveSlotSession.SetActiveSlot(selectedSaveSlot);
+            if (!FactoryWorldLoadSession.TryBeginNewGame(out string error))
+            {
+                ProgressionSaveSlotSession.SetActiveSlot(previousSlot);
+                saveMessage = error;
+                return false;
+            }
+            saveMessage = "Starting a new game...";
+            return true;
+        }
+
+        public string GetSaveSlotSummary(int slot)
+        {
+            string path = ProgressionSaveService.SlotPath(slot);
+            if (!File.Exists(path))
+                return slot == 1 && HasLegacySingleSlotSave()
+                    ? "Empty. A previous single-slot save is incompatible with the 9x9 map and remains preserved."
+                    : "Empty slot.";
+            DateTime writeUtc = File.GetLastWriteTimeUtc(path);
+            if (cachedSaveSummary != null && cachedSaveWriteUtc == writeUtc &&
+                cachedSavePath == path)
                 return cachedSaveSummary;
             saves ??= new ProgressionSaveService(market, buildings);
-            if (!saves.TryReadValidated(SavePath, out ProgressionSaveData data,
+            if (!saves.TryReadValidated(path, out ProgressionSaveData data,
                     out string error)) return $"Save unavailable: {error}";
-            string timestamp = File.GetLastWriteTime(SavePath).ToString("g");
-            int restored = data.unlocks.Count(key =>
-                key?.category == UnlockKey.RegionCategory);
+            string timestamp = File.GetLastWriteTime(path).ToString("g");
+            if (data.version == 1)
+                return $"Legacy progression save: {timestamp}\n" +
+                    $"Currency: {data.currency}\nObjective: {data.activeOrderId ?? "All complete"}";
+            int savedNextExpansionCost = market.Territories.Settings
+                .CostForExpansionCount(data.world.territoryPurchaseCount);
             cachedSaveWriteUtc = writeUtc;
+            cachedSavePath = path;
             cachedSaveSummary = $"Last saved: {timestamp}\n" +
-                $"Saved order: {data.activeOrderId ?? "All complete"}\n" +
-                $"Restored regions: {restored}";
+                $"Chapter objective: {data.activeOrderId ?? "All complete"}\n" +
+                $"Currency: {data.currency}\nWorld seed: {data.world.worldSeed}\n" +
+                $"Owned parcels: {data.world.purchasedTerritories.Length}\n" +
+                $"Next side: {savedNextExpansionCost}";
             return cachedSaveSummary;
         }
+
+        private static bool HasLegacySingleSlotSave() =>
+            File.Exists(ProgressionSaveService.DemoPath) ||
+            File.Exists(ProgressionSaveService.PreviousCampaignPath) ||
+            File.Exists(ProgressionSaveService.PreviousReservedTerritoryPath) ||
+            File.Exists(ProgressionSaveService.PreviousTerritoryPath) ||
+            File.Exists(ProgressionSaveService.PreviousChapterPath) ||
+            File.Exists(ProgressionSaveService.LegacyDemoPath);
 
         public bool LoadGame()
         {
             if (market == null || buildings == null) return false;
             saves ??= new ProgressionSaveService(market, buildings);
-            if (!saves.TryReadValidated(SavePath,
+            if (!saves.TryReadValidated(SelectedSavePath,
                     out ProgressionSaveData data, out string error))
             {
-                saveMessage = !File.Exists(SavePath) &&
-                    File.Exists(ProgressionSaveService.LegacyDemoPath)
-                    ? "Chapter 1 starts a new save. The previous Demo save is preserved."
+                saveMessage = !File.Exists(SelectedSavePath) && HasLegacySingleSlotSave()
+                    ? "Legacy single-slot saves are preserved but incompatible with this map. Start a new game in an empty slot."
                     : $"Load failed: {error}";
                 return false;
             }
-            else if (data.version == 1)
-            {
-                bool loaded = saves.TryLoad(SavePath, out error);
-                saveMessage = loaded ? "Version 1 progression loaded." :
-                    $"Load failed: {error}";
-                return loaded;
-            }
             else
             {
+                int previousSlot = ProgressionSaveSlotSession.ActiveSlot;
+                ProgressionSaveSlotSession.SetActiveSlot(selectedSaveSlot);
                 bool started = FactoryWorldLoadSession.TryBegin(data, out error);
+                if (!started) ProgressionSaveSlotSession.SetActiveSlot(previousSlot);
                 saveMessage = started ? "Reconstructing factory..." :
                     $"Load failed: {error}";
                 return started;
@@ -324,7 +369,7 @@ namespace CozyFoodFactory.Food
                 return;
             }
             Vector3 screen = camera.WorldToScreenPoint(market.transform.position +
-                new Vector3(0f, 1.25f, 0f));
+                new Vector3(0f, market.Footprint.y * 0.3f, 0f));
             if (screen.z <= 0f) return;
             objectiveAnchor = new Vector2(screen.x, Screen.height - screen.y);
             if (objectiveAnchor.x < -140f || objectiveAnchor.x > Screen.width + 140f ||
@@ -337,13 +382,24 @@ namespace CozyFoodFactory.Food
                     $"{order.GetDeliveredCount(requirement)} / {requirement.Quantity}"));
             Vector2 pointer = Mouse.current?.position.ReadValue() ?? Vector2.zero;
             pointer.y = Screen.height - pointer.y;
-            bool hovered = new Rect(objectiveAnchor.x - 80f,
-                objectiveAnchor.y - 18f, 160f, 38f).Contains(pointer);
+            float projectedCellSize = buildings.GridSystem.CellSize *
+                Screen.height / (2f * camera.orthographicSize);
+            float boxWidth = Mathf.Min(210f,
+                market.Footprint.x * projectedCellSize * 0.86f);
+            float boxHeight = Mathf.Min(52f, projectedCellSize * 0.62f);
+            Rect objectiveRect = new(objectiveAnchor.x - boxWidth * 0.5f,
+                objectiveAnchor.y - boxHeight * 0.5f, boxWidth, boxHeight);
+            objectiveWorldRect = objectiveRect;
+            bool hovered = objectiveRect.Contains(pointer);
             string label = hovered && order != null
                 ? $"{order.Order.DisplayName}\n{progress}" : progress;
-            GUI.Box(new Rect(objectiveAnchor.x - 85f,
-                objectiveAnchor.y - (hovered ? 42f : 20f), 170f,
-                hovered ? 44f : 24f), label);
+            GUIStyle style = new(GUI.skin.box)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = true,
+                fontSize = Mathf.Clamp(Mathf.RoundToInt(projectedCellSize * 0.32f), 8, 14)
+            };
+            GUI.Box(objectiveRect, label, style);
         }
 
         private Rect GetObjectivePopoverRect()
@@ -442,11 +498,10 @@ namespace CozyFoodFactory.Food
                     {
                         GUILayout.Label(completed.DisplayName);
                         foreach (UnlockKey unlock in completed.Unlocks)
-                            GUILayout.Label($"  {unlock.Category}: {unlock.Id}");
+                            GUILayout.Label($"  {unlock.Category}: {UnlockDisplayName(unlock)}");
                     }
-                    foreach (FarmableRegion region in market.Regions.Regions)
-                        if (market.Regions.GetStatus(region.Id) == RegionStatus.Restored)
-                            GUILayout.Label($"Restored: {region.DisplayName}");
+                    GUILayout.Label($"Purchased territories: " +
+                        market.Territories.PurchasedCoordinates.Count);
                     break;
             }
             GUILayout.EndScrollView();
@@ -457,68 +512,163 @@ namespace CozyFoodFactory.Food
         {
             if (Camera.main == null) return;
             if (Time.time < orderFeedbackUntil && objectiveAnchorValid)
-                GUI.Label(new Rect(objectiveAnchor.x - 90f, objectiveAnchor.y - 70f,
-                    180f, 22f), "Order complete!");
-            if (Time.time >= regionFeedbackUntil ||
-                string.IsNullOrEmpty(restoredRegionName)) return;
-            FarmableRegion region = market.Regions.Regions.FirstOrDefault(candidate =>
-                candidate.Id == restoredRegionName);
-            if (region == null) return;
-            Vector2Int cell = region.MinimumCell + region.Size / 2;
-            Vector3 screen = Camera.main.WorldToScreenPoint(
-                buildings.GridSystem.GridToWorld(cell));
-            if (screen.z > 0f)
-                GUI.Label(new Rect(screen.x - 95f, Screen.height - screen.y - 20f,
-                    190f, 24f), $"{region.DisplayName} restored!");
+            {
+                float projectedCellSize = buildings.GridSystem.CellSize *
+                    Screen.height / (2f * Camera.main.orthographicSize);
+                float width = Mathf.Min(210f,
+                    market.Footprint.x * projectedCellSize * 0.86f);
+                var style = new GUIStyle(GUI.skin.label)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = Mathf.Clamp(Mathf.RoundToInt(projectedCellSize * 0.32f), 8, 14)
+                };
+                GUI.Label(new Rect(objectiveAnchor.x - width * 0.5f,
+                    objectiveAnchor.y + 2f, width, 20f), "Order complete!", style);
+            }
         }
 
-        private void Start()
+        private void DrawTerritoryOverlays()
         {
-            if (market?.Regions == null || buildings?.GridSystem == null) return;
-            regionVisualRoot = new GameObject("Farmable region background");
-            regionVisualRoot.transform.SetParent(transform, false);
-            GridSystem grid = buildings.GridSystem;
-            foreach (FarmableRegion region in market.Regions.Regions)
+            Camera camera = Camera.main;
+            if (camera == null || buildings?.GridSystem == null || market == null) return;
+            TerritorySystem territories = market.Territories;
+            GetVisibleParcels(camera, out Vector2Int first, out Vector2Int last);
+            for (int x = first.x; x <= last.x; x++)
+                for (int y = first.y; y <= last.y; y++)
+                    DrawTerritory(new Vector2Int(x, y), camera, territories);
+        }
+
+        private void DrawTerritory(Vector2Int coordinate, Camera camera,
+            TerritorySystem territories)
+        {
+            TerritoryParcelVisualState state = territories.GetParcelVisualState(
+                coordinate, market.Currency);
+            if (state == TerritoryParcelVisualState.ReservedHub) return;
+            Rect rect = GetTerritoryRect(coordinate, camera);
+            if (rect.width < 28f || rect.height < 28f) return;
+            if (state != TerritoryParcelVisualState.Purchasable) return;
+            Rect action = GetTerritoryActionRect(coordinate, camera);
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && !buildings.BlocksAllWorldInput;
+            string side = territories.ExpansionSideName(coordinate).ToUpperInvariant();
+            if (GUI.Button(action, $"EXPAND {side}  ${territories.NextPurchaseCost}"))
             {
-                var area = new GameObject(region.DisplayName);
-                area.transform.SetParent(regionVisualRoot.transform, false);
-                Vector3 min = grid.GridToWorld(region.MinimumCell);
-                Vector3 max = grid.GridToWorld(region.MinimumCell + region.Size - Vector2Int.one);
-                area.transform.position = (min + max) * 0.5f;
-                area.transform.localScale = new Vector3(region.Size.x * grid.CellSize,
-                    region.Size.y * grid.CellSize, 1f);
-                SpriteRenderer renderer = area.AddComponent<SpriteRenderer>();
-                renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
-                renderer.sortingOrder = -110;
-                regionVisuals.Add(region.Id, renderer);
+                selectedTerritory = coordinate;
+                buildings.OpenPanel(BuildingPlacementController.DemoPanel.Region);
             }
+            GUI.enabled = enabled;
+        }
+
+        private Rect GetTerritoryActionRect(Vector2Int coordinate, Camera camera)
+        {
+            Rect parcel = GetTerritoryRect(coordinate, camera);
+            float width = Mathf.Min(140f, parcel.width - 4f);
+            return new Rect(parcel.center.x - width * 0.5f,
+                parcel.y + 4f, width, 30f);
+        }
+
+        private void GetVisibleParcels(Camera camera, out Vector2Int first, out Vector2Int last)
+        {
+            var grid = buildings.GridSystem;
+            var territories = market.Territories;
+            float depth = -camera.transform.position.z;
+            first = territories.CoordinateAtCell(grid.WorldToGrid(
+                camera.ViewportToWorldPoint(new Vector3(0f, 0f, depth))));
+            last = territories.CoordinateAtCell(grid.WorldToGrid(
+                camera.ViewportToWorldPoint(new Vector3(1f, 1f, depth))));
         }
 
         private void LateUpdate()
         {
-            if (market?.Regions == null) return;
-            foreach (FarmableRegion region in market.Regions.Regions)
+            int used = 0;
+            Camera camera = Camera.main;
+            if (camera != null && market != null && buildings?.GridSystem != null)
             {
-                if (!regionVisuals.TryGetValue(region.Id, out SpriteRenderer renderer))
-                    continue;
-                RegionPurchaseStatus status = market.Regions.GetPurchaseStatus(
-                    region.Id, market.Currency);
-                Color color = status switch
-                {
-                    RegionPurchaseStatus.Restored => new Color(0.34f, 0.62f, 0.31f, 0.55f),
-                    RegionPurchaseStatus.Available => new Color(0.55f, 0.64f, 0.32f, 0.45f),
-                    RegionPurchaseStatus.Unaffordable => new Color(0.43f, 0.49f, 0.66f, 0.48f),
-                    RegionPurchaseStatus.NotAdjacent => new Color(0.48f, 0.38f, 0.56f, 0.48f),
-                    _ => new Color(0.37f, 0.40f, 0.53f, 0.48f)
-                };
-                if (region.Id == selectedRegionId) color.a = 0.75f;
-                renderer.color = color;
+                var grid = buildings.GridSystem;
+                var territories = market.Territories;
+                GetVisibleParcels(camera, out Vector2Int first, out Vector2Int last);
+                for (int x = first.x; x <= last.x; x++)
+                    for (int y = first.y; y <= last.y; y++)
+                    {
+                        Vector2Int parcel = new(x, y);
+                        TerritoryParcelVisualState state = territories.GetParcelVisualState(parcel, market.Currency);
+                        if (state == TerritoryParcelVisualState.ReservedHub) continue;
+                        if (used == territoryFills.Count)
+                        {
+                            var fill = new GameObject("Territory tint");
+                            fill.transform.SetParent(transform, false);
+                            var renderer = fill.AddComponent<SpriteRenderer>();
+                            renderer.sprite = BuildingVisualFactory.PlaceholderSprite;
+                            renderer.sortingOrder = -110;
+                            territoryFills.Add(renderer);
+                        }
+                        SpriteRenderer view = territoryFills[used++];
+                        view.gameObject.SetActive(true);
+                        float centerOffset = (TerritoryWorldSettings.ParcelSize - 1) * 0.5f;
+                        Vector3 center = grid.GridToWorld(territories.ParcelMinimumCell(parcel)) +
+                            new Vector3(centerOffset, centerOffset, 0f) * grid.CellSize;
+                        view.transform.position = center;
+                        view.transform.localScale = Vector3.one *
+                            (TerritoryWorldSettings.ParcelSize * grid.CellSize);
+                        view.color = ParcelColor(state);
+                    }
             }
+            for (int index = used; index < territoryFills.Count; index++)
+                territoryFills[index].gameObject.SetActive(false);
         }
 
-        private void OnDestroy()
+        public static Color ParcelColor(TerritoryParcelVisualState state) => state switch
         {
-            if (regionVisualRoot != null) Destroy(regionVisualRoot);
+            TerritoryParcelVisualState.Owned => new Color(0.48f, 0.82f, 0.43f, 0.16f),
+            TerritoryParcelVisualState.Purchasable => new Color(0.95f, 0.80f, 0.25f, 0.20f),
+            TerritoryParcelVisualState.Locked => new Color(0.43f, 0.47f, 0.52f, 0.14f),
+            _ => Color.clear
+        };
+
+        private void OnDisable()
+        {
+            foreach (SpriteRenderer fill in territoryFills)
+                if (fill != null) fill.gameObject.SetActive(false);
+        }
+
+        private Rect GetTerritoryRect(Vector2Int coordinate, Camera camera)
+        {
+            Vector2Int minimum = market.Territories.ParcelMinimumCell(coordinate);
+            Vector2Int maximum = minimum + Vector2Int.one *
+                (TerritoryWorldSettings.ParcelSize - 1);
+            float half = buildings.GridSystem.CellSize * 0.5f;
+            Vector3 lowerLeft = buildings.GridSystem.GridToWorld(minimum) +
+                new Vector3(-half, -half, 0f);
+            Vector3 upperRight = buildings.GridSystem.GridToWorld(maximum) +
+                new Vector3(half, half, 0f);
+            Vector3 a = camera.WorldToScreenPoint(lowerLeft);
+            Vector3 b = camera.WorldToScreenPoint(upperRight);
+            float x = Mathf.Min(a.x, b.x);
+            float y = Screen.height - Mathf.Max(a.y, b.y);
+            return new Rect(x, y, Mathf.Abs(b.x - a.x), Mathf.Abs(b.y - a.y));
+        }
+
+        private bool GetTerritoryActionRectAtPointer(Vector2 pointer,
+            out Vector2Int coordinate)
+        {
+            coordinate = default;
+            if (Camera.main == null || market == null || buildings?.GridSystem == null)
+                return false;
+            TerritorySystem territories = market.Territories;
+            GetVisibleParcels(Camera.main, out Vector2Int first, out Vector2Int last);
+            for (int x = first.x; x <= last.x; x++)
+                for (int y = first.y; y <= last.y; y++)
+                {
+                    var candidate = new Vector2Int(x, y);
+                    if (territories.GetParcelVisualState(candidate, market.Currency) ==
+                            TerritoryParcelVisualState.Purchasable &&
+                        GetTerritoryActionRect(candidate, Camera.main).Contains(pointer))
+                    {
+                        coordinate = candidate;
+                        return true;
+                    }
+                }
+            return false;
         }
 
         private Rect GetRegionPanelRect()
@@ -533,65 +683,46 @@ namespace CozyFoodFactory.Food
                 Mathf.Max(60f, Mathf.Min(242f, Screen.height - y - 114f)));
         }
 
-        private void DrawRegionPanel()
+        private void DrawTerritoryPanel()
         {
-            if (selectedRegionId == null || market.Regions == null) return;
-            FarmableRegion region = market.Regions.Regions.FirstOrDefault(candidate =>
-                candidate.Id == selectedRegionId);
-            if (region == null) return;
+            if (!selectedTerritory.HasValue || market == null) return;
+            Vector2Int coordinate = selectedTerritory.Value;
+            TerritorySystem territories = market.Territories;
+            TerritoryPurchaseStatus status = territories.GetPurchaseStatus(
+                coordinate, market.Currency);
 
             Rect rect = GetRegionPanelRect();
             GUI.Box(rect, GUIContent.none);
             GUILayout.BeginArea(new Rect(rect.x + 10f, rect.y + 8f,
                 rect.width - 20f, rect.height - 16f));
             if (buildings != null && buildings.IsFoodDemo)
-                regionScroll = GUILayout.BeginScrollView(regionScroll);
-            GUILayout.Label(region.DisplayName);
-            if (buildings == null || !buildings.IsFoodDemo || buildings.IsDevInspectorOpen)
-                GUILayout.Label($"Bounds: x {region.MinimumCell.x}.." +
-                    $"{region.MinimumCell.x + region.Size.x - 1}, y " +
-                    $"{region.MinimumCell.y}..{region.MinimumCell.y + region.Size.y - 1}");
-            int used = buildings?.CountFarmPlots(region) ?? 0;
-            int free = buildings?.CountFreeFarmCells(region) ??
-                region.FarmableCellCount - used;
-            GUILayout.Label($"Farmable cells: {region.FarmableCellCount} " +
-                $"({used} plots, {free} free)");
-            bool restored = market.Regions.GetStatus(region.Id) == RegionStatus.Restored;
-            bool progression = !region.HasRequirement ||
-                market.Unlocks.IsUnlocked(region.RequiredUnlockCategory,
-                    region.RequiredUnlockId);
-            bool adjacent = market.Regions.HasRestoredAdjacent(region.Id);
-            bool affordable = market.Currency >= region.Price;
-            if (restored) GUILayout.Label("Already restored");
+                territoryScroll = GUILayout.BeginScrollView(territoryScroll);
+            Vector2Int minimum = territories.ParcelMinimumCell(coordinate);
+            int distance = Mathf.Abs(coordinate.x - territories.StartingTerritory.x) +
+                Mathf.Abs(coordinate.y - territories.StartingTerritory.y);
+            GUILayout.Label($"Territory {coordinate.x}, {coordinate.y}");
+            GUILayout.Label($"Cells: {minimum.x}..{minimum.x + TerritoryWorldSettings.ParcelSize - 1}, " +
+                $"{minimum.y}..{minimum.y + TerritoryWorldSettings.ParcelSize - 1}");
+            if (status == TerritoryPurchaseStatus.Owned)
+                GUILayout.Label("Owned · all normal construction is allowed inside.");
             else
             {
-                GUILayout.Label($"{(progression ? "Ready" : "Missing")} progression: " +
-                    (region.HasRequirement ? region.RequiredUnlockId : "none"));
-                GUILayout.Label($"{(adjacent ? "Ready" : "Missing")}: adjacent restored land");
-                GUILayout.Label($"{(affordable ? "Affordable" : "Unaffordable")}: " +
-                    $"{market.Currency} / {region.Price} currency");
-                if (!progression)
-                    GUILayout.Label(region.Id == "East Field"
-                        ? "Complete the Tomato Sauce order."
-                        : $"Unlock {region.RequiredUnlockId} first.");
-                if (!adjacent)
-                    GUILayout.Label("Restore an adjacent region first.");
-                if (!affordable)
-                    GUILayout.Label($"Need {region.Price - market.Currency} more coins. " +
-                        "Sell food at the Market.");
-                RegionPurchaseStatus status = market.Regions.GetPurchaseStatus(
-                    region.Id, market.Currency);
+                GUILayout.Label($"Distance from start: {distance} parcels");
+                GUILayout.Label(status == TerritoryPurchaseStatus.NotAdjacent
+                    ? "Unavailable: purchase a cardinally adjacent territory first."
+                    : $"Next expansion price: {territories.NextPurchaseCost} " +
+                        $"(currency: {market.Currency}).");
+                if (status == TerritoryPurchaseStatus.Unaffordable)
+                    GUILayout.Label("Not enough currency. This parcel remains frontier territory.");
                 bool originalEnabled = GUI.enabled;
-                GUI.enabled = originalEnabled && status == RegionPurchaseStatus.Available;
-                if (GUILayout.Button($"Purchase {region.DisplayName} ({region.Price})"))
+                GUI.enabled = originalEnabled && status == TerritoryPurchaseStatus.Available;
+                if (GUILayout.Button($"Purchase {territories.ExpansionSideName(coordinate)} side " +
+                        $"({territories.ExpansionParcelCount(coordinate)} parcels) " +
+                        $"for {territories.NextPurchaseCost}"))
                 {
-                    if (market.Regions.TryPurchase(region.Id, market.Inventory))
+                    if (buildings != null && buildings.TryPurchaseTerritory(coordinate))
                     {
-                        restoredRegionName = region.Id;
-                        regionFeedbackUntil = Time.time + 3f;
                         regionMessage = null;
-                        if (buildings?.IsFoodDemo == true) buildings.ClosePanel();
-                        else selectedRegionId = null;
                     }
                     else regionMessage = "Purchase failed.";
                 }
@@ -601,7 +732,7 @@ namespace CozyFoodFactory.Food
             if (GUILayout.Button("Close"))
             {
                 if (buildings != null && buildings.IsFoodDemo) buildings.ClosePanel();
-                else selectedRegionId = null;
+                else selectedTerritory = null;
             }
             if (buildings != null && buildings.IsFoodDemo)
                 GUILayout.EndScrollView();
@@ -613,7 +744,7 @@ namespace CozyFoodFactory.Food
             string orderId = market.ActiveOrder?.Order.Id;
             return orderId switch
             {
-                "O1" => "Start: place a Farm Plot on Starter Fields, " +
+                "O1" => "Start: place a Farm Plot inside your owned 9x9 territory, " +
                     "choose Carrot, cover it with a Harvester, and belt carrots to Market. " +
                     "Use the Hotbar or Build Menu, R to rotate, Esc to exit build mode.",
                 "O2" => "Build a Processor. In its default rotation, " +
@@ -622,10 +753,7 @@ namespace CozyFoodFactory.Food
                 "O3" => "Grow Tomato and Onion. Feed separate belts " +
                     "to the Mixer's two west inputs in default rotation, then belt " +
                     "its east output to Market.",
-                "O4" when market.Regions.GetStatus("East Field") !=
-                    RegionStatus.Restored => "Select East Field on the map and purchase " +
-                        "it to unlock Potato.",
-                "O4" => "Grow Potato in East Field. In default Cutter " +
+                "O4" => "Grow Potato in a purchased territory. In default Cutter " +
                     "rotation, feed its rear from the south and connect a westbound " +
                     "and eastbound belt to its front sides. One potato makes two slices.",
                 "O5" => "Pipe Heat into a Processor and feed it Potato Slice. " +
@@ -635,10 +763,21 @@ namespace CozyFoodFactory.Food
                 "O7" => "Feed French Fries and Tomato Sauce into a Mixer. " +
                     "Keep Sauce available for Soup as well as Loaded Fries.",
                 "O8" => "Feed Loaded Fries and Tomato Soup into a Mixer. " +
-                    "Deliver Garden Lunch to complete Chapter 1.",
-                _ => "Build a food production line and deliver its output to Market."
+                    "Deliver Garden Lunch to unlock Chicken Village trading.",
+                "O9" => "Build the Chicken Trading Center, choose Garden Lunch for Egg, " +
+                    "and connect a Garden Lunch belt to a left input port. Connect a bottom " +
+                    "output port to Market and deliver 500 Eggs.",
+                "O10" => "Feed Egg and Tomato Sauce to the Mixer's two inputs. " +
+                    "Route Tomato Omelette to Market to complete Chapter 1.",
+                _ => market.ActiveOrder == null
+                    ? "Chapter 1 Complete. Your factory has completed the vegetable campaign."
+                    : "Build a food production line and deliver its output to Market."
             };
         }
+
+        private static string UnlockDisplayName(UnlockKey unlock) =>
+            unlock?.Category == UnlockKey.MachineCategory &&
+            unlock.Id == nameof(TradeBuilding) ? "Chicken Trading Center" : unlock?.Id;
 
         private Rect GetPanelRect()
         {
@@ -652,10 +791,7 @@ namespace CozyFoodFactory.Food
             {
                 contentHeight += 28f + market.SeedShop.Offers.Count * 28f;
             }
-            if (market.Regions?.Regions.Count > 0)
-            {
-                contentHeight += 28f + market.Regions.Regions.Count * 28f;
-            }
+            contentHeight += 28f;
             if (buildings != null)
             {
                 contentHeight += buildings.IsFoodDemo ? 0f : 94f;

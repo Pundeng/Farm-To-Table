@@ -22,14 +22,22 @@ The active `Demo.unity` campaign is Chapter 1, not the former five-order Demo sl
 | --- | --- | --- |
 | O1 Deliver Carrots | Carrot x30 | Farm, Harvester, Belt, Market; unlock Processor and Heat use. |
 | O2 Roasted Carrot | Roasted Carrot x40 | Carrot + Heat in Processor; unlock Tomato, Onion, Basic Mixer. |
-| O3 Tomato Sauce | Tomato Sauce x70 | Tomato + Onion in Mixer; unlock Cutter and East Field access. |
-| O4 Potato Slice | Potato Slice x90 | Restore East Field for Potato; Cutter makes two slices per cycle. |
+| O3 Tomato Sauce | Tomato Sauce x70 | Tomato + Onion in Mixer; unlock Cutter and Potato. |
+| O4 Potato Slice | Potato Slice x90 | Cutter makes two slices per cycle; expand territory as needed. |
 | O5 French Fries | French Fries x150 | Potato Slice + Heat; reuse the first Property. |
 | O6 Tomato Soup | Tomato Soup x220 | Tomato Sauce + Water; introduce the second Property. |
 | O7 Loaded Fries | Loaded Fries x300 | French Fries + Tomato Sauce; share the Sauce line. |
-| O8 Garden Lunch | Garden Lunch x400 | Loaded Fries + Tomato Soup; complete Chapter 1. |
+| O8 Garden Lunch | Garden Lunch x400 | Loaded Fries + Tomato Soup; unlock Chicken Trading Center. |
+| O9 Eggs | Egg x500 | Trade Garden Lunch x1 for Egg x2 at Chicken Village. |
+| O10 Tomato Omelette | Tomato Omelette x700 | Egg + Tomato Sauce in Basic Mixer; complete Chapter 1. |
 
-The seven recipes use the existing Processor, Basic Mixer, and Cutter. Hints for the active objective and its prerequisites do not count as recipe discovery; first actual production does. Heat becomes constructible after O1 and Water after O5. Time and Cold have no required Chapter 1 recipe. Sources still exist in the scene, but the normal Chapter 1 Property construction UI does not offer them. Chapter completion follows O8; Chicken Village and Egg are planned for later and are not implemented here. The former Apple/Dried Apple/Vegetable Base/Cut Potato progression and Air/Moisture naming below are historical examples where retained for context.
+Chapter 1 uses eight machine recipes: Carrot + Heat → Roasted Carrot; Tomato + Onion → Tomato Sauce; Potato → 2 Potato Slices; Potato Slice + Heat → French Fries; Tomato Sauce + Water → Tomato Soup; French Fries + Tomato Sauce → Loaded Fries; Loaded Fries + Tomato Soup → Garden Lunch; Egg + Tomato Sauce → Tomato Omelette. The existing Trade Building exchanges one Garden Lunch for two Eggs after O8. Hints for the active objective and its prerequisites do not count as recipe discovery; first actual production does. Heat becomes constructible after O1 and Water after O5. Time and Cold remain future concepts. Chapter completion follows O10 and shows Chapter 1 Complete without starting Chapter 2. Apple and Strawberry are reserved for later fruit progression. The former Apple/Dried Apple/Vegetable Base/Cut Potato progression and Air/Moisture naming below are historical examples where retained for context.
+
+### Territory expansion and Property world generation
+
+The active Demo uses 9x9 parcels. The central Market parcel is reserved and untinted; the eight surrounding parcels begin owned and buildable. The Market is centered at anchor (2,2) and occupies 5x5 cells, leaving a two-cell margin. The central parcel is shared buildable factory space outside the Market footprint; the Market cells alone are blocked. Purchases add a complete side row or column to the rectangular owned area. The authored global expansion prices are 100, 180, 320, 550, 900, and 1500, then the curve sums prior prices.
+
+The Market Inspector `Territory Settings` is the single authoring location for seed, parcel coordinates, global side-expansion prices, and Property distance weights. Property generation uses generation version 5 and 9x9 parcel coordinates; the reserved Hub and its immediate neighbors do not receive normal generated deposits.
 
 ---
 
@@ -37,7 +45,7 @@ The seven recipes use the existing Processor, Basic Mixer, and Cutter. Hints for
 
 Players select one building with Left Click, toggle with Shift + Left Click, and select intersecting footprints with Shift + Left Drag. Selection shows a small count and outlines, including Farm Plots beneath Harvesters. M previews a move without changing the Clipboard. R rotates the group; Left Click commits and Esc or Right Click cancels. Ctrl+C, Ctrl+X, Ctrl+V, and normal-mode Right Click demolition remain available. Copy and Blueprint Save preserve active items at their sources while capturing construction only. A move or cut of buildings carrying food or active production requires one explicit confirmation that those runtime contents will be discarded. Cancellation or failed placement preserves the originals and their contents; successful relocation creates empty new buildings. Undo restores construction only, never discarded food or elapsed production.
 
-The Build Menu includes a named Blueprint Library separate from the temporary Clipboard and world Save/Load. A Blueprint stores building types, relative cells, rotations, Farm Plot crop choices, and constructed Property connections. It excludes live food, buffers, progression, currency, fixed Property Sources, and automatic Processor demands. The Library survives restarts and fresh Demo sessions and supports Place, Rename, Duplicate, and Delete. Placement previews the complete rotated layout and commits only when all footprints, farmland, unlocks, dependencies, and Property connections are valid. Connections may attach to a matching fixed Property Source at the destination. Failed placement leaves the world unchanged and explains the obstacle. Locked machines keep their Blueprints visible but block placement.
+The Build Menu includes a named Blueprint Library separate from the temporary Clipboard and world Save/Load. A Blueprint stores building types, relative cells, rotations, Farm Plot crop choices, and constructed Property connections. It excludes live food, buffers, progression, currency, generated Property Sources, and automatic Processor demands. The Library survives restarts and fresh Demo sessions and supports Place, Rename, Duplicate, and Delete. Placement previews the complete rotated layout and commits only when all footprints, territory ownership, unlocks, dependencies, and Property connections are valid. Connections may attach to a matching generated Property Source at the destination. Failed placement leaves the world unchanged and explains the obstacle. Locked machines keep their Blueprints visible but block placement.
 
 Ctrl+Z and Ctrl+Y navigate the latest 50 construction actions in the current session. A building action, Belt or Pipe drag, right-drag removal, Blueprint or Clipboard paste, group relocation, and crop change each count as one action. Failed or cancelled actions do not enter history. Replay revalidates the current factory and refuses to remove active food or production, disconnect dependent Property links, or restore into occupied or inaccessible cells. It never rewinds transported food, machine buffers, production, currency, orders, or time. A new action after Undo clears Redo. Saving retains history; loading or restarting clears it.
 
@@ -53,15 +61,15 @@ Construction presents Farming, Logistics, Manufacturing, and Property groups whi
 
 Food inputs, food outputs, and property ports use distinct colors and shapes. The Mixer's A and B inputs and Cutter's A and B outputs have visible labels. Working and Idle machines need no persistent status badge. Actionable problems show one indicator, the affected port or combination area, and a short problem and action tooltip; Output Blocked takes priority over Invalid Recipe, Needs Property, and Needs Input. Event Toasts are reserved for progression, currency, and save events. Transported foods use distinct temporary colors and labels based on their food identity until final art exists.
 
-## Milestone 03 — Land Expansion & Farmable Readability (demo rules)
+## Milestone 03 Land Expansion (historical region model; superseded)
 
-The map shows restored farmable cells, locked future farmland, and ground that cannot host Farm Plots at all times. Farm Plot previews explain whether a cell is locked, non-farmable, or occupied. Only restored, designated farmable cells accept Farm Plots; other construction retains its current placement rules.
+This section describes the retired authored-region model. Current territory rules are specified in Territory expansion and Property world generation above: normal construction is restricted to owned 9x9 parcels, except for the twelve supported Belt entry lanes in the reserved Market parcel.
 
-Players select locked regions by clicking their map area. Restored regions can be inspected through the Market list or Alt-clicked on the map, leaving ordinary building interactions available. The selected region shows its name, cell bounds, price, required progression, and used/free Farm Plot capacity. A region may be bought only when it shares a cardinal edge with an already restored region, its progression requirement is met, and regular currency covers its price. Diagonal contact does not count. A successful purchase spends currency once, restores the region immediately, and activates its farmable cells. Failed or repeated purchases spend nothing. The selected region and map show progression-locked, unaffordable, available, and restored states. Restoration gives visible confirmation. Region selection and purchase clicks cannot place or remove buildings.
+The region-restoration details below are historical design notes and do not describe active Demo behavior.
 
-The O3 Tomato Sauce order is the prerequisite for East Field; restoring East Field still grants Potato once. The starting region is restored for free. The scene's additional surrounding rectangles and all region prices are **provisional authored content**, not finalized world layout or balance. Each authored rectangle currently designates every cell inside it as farmable; ground outside those rectangles is non-farmable. Region unlocks and remaining currency use the Chapter 1 save data; Farm Plot usage and free-cell capacity are derived from restored buildings after loading.
+The previous East Field gate, rectangle geometry, farmable cell designations, and region prices are retired.
 
-Final region geometry, pricing, progression for regions beyond East Field, and procedural distribution remain undecided.
+
 
 ## Milestone 02 — From Farm to Food Factory (historical Demo slice; superseded by Chapter 1)
 
@@ -788,6 +796,9 @@ It is used for:
 - Seed purchases
 
 ## 15.2 Market
+
+The 5x5 Market derives twelve perimeter Belt entrances (the center three cells on each side) from its anchor. Each lane shares the existing inventory and delivery pipeline. All free cells outside the Market footprint in the reserved parcel remain ordinary construction space. Market occupancy stays 5x5 regardless of sprite or visual prefab bounds. See [Market perimeter inputs](MARKET_PORTS_README.md).
+
 
 The market provides ongoing opportunities to sell finished products.
 

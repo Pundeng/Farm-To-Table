@@ -817,16 +817,16 @@ namespace CozyFoodFactory.Tests.EditMode
         {
             var occupancy = new GridOccupancy();
             var marketCell = new Vector2Int(10, 1);
-            occupancy.TryRegister(
+            Assert.That(occupancy.TryRegister(
                 "Market",
                 marketCell,
-                Vector2Int.one,
+                new Vector2Int(3, 3),
                 BuildingRotation.Degrees0,
-                out _);
+                out _), Is.True);
 
             bool overlappingBuildingRegistered = occupancy.TryRegister(
                 "Machine",
-                marketCell + Vector2Int.left,
+                marketCell + new Vector2Int(2, 0),
                 new Vector2Int(2, 1),
                 BuildingRotation.Degrees0,
                 out _);
@@ -836,10 +836,17 @@ namespace CozyFoodFactory.Tests.EditMode
                 Vector2Int.one,
                 BuildingRotation.Degrees90,
                 out _);
+            bool buildingAboveRegistered = occupancy.TryRegister(
+                "Machine",
+                marketCell + new Vector2Int(1, 3),
+                Vector2Int.one,
+                BuildingRotation.Degrees0,
+                out _);
 
             Assert.That(overlappingBuildingRegistered, Is.False);
             Assert.That(adjacentInputBeltRegistered, Is.True);
-            Assert.That(occupancy.OccupiedCellCount, Is.EqualTo(2));
+            Assert.That(buildingAboveRegistered, Is.True);
+            Assert.That(occupancy.OccupiedCellCount, Is.EqualTo(11));
         }
 
         [Test]

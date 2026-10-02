@@ -56,20 +56,11 @@ namespace CozyFoodFactory.Logistics
 
         public void RefreshConnections()
         {
+            GetSystem().RefreshTopology();
             foreach (KeyValuePair<BeltCell, Belt> entry in beltViews)
             {
                 if (entry.Value == null) continue;
-                int incoming = 0;
-                for (int index = 0; index < 4; index++)
-                {
-                    GridDirection direction = (GridDirection)index;
-                    Vector2Int neighbor = entry.Key.Cell - direction.ToOffset();
-                    if (GetSystem().TryGetBelt(neighbor, out BeltCell source) &&
-                        source.HasOutput(direction) &&
-                        !entry.Key.HasOutput((GridDirection)((index + 2) & 3)))
-                        incoming |= BeltCell.Bit((GridDirection)((index + 2) & 3));
-                }
-                entry.Value.RefreshConnections(incoming);
+                entry.Value.RefreshConnections(entry.Key.ConnectedInputMask);
             }
         }
 
@@ -93,11 +84,13 @@ namespace CozyFoodFactory.Logistics
         public void RegisterInputReceiver(IItemInputReceiver receiver)
         {
             GetSystem().RegisterInputReceiver(receiver);
+            RefreshConnections();
         }
 
         public void UnregisterInputReceiver(IItemInputReceiver receiver)
         {
             GetSystem().UnregisterInputReceiver(receiver);
+            RefreshConnections();
         }
 
         public void UnregisterOutputSource(IItemOutputSource source)
