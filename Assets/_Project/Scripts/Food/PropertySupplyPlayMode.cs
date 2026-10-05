@@ -52,7 +52,6 @@ namespace CozyFoodFactory.Food
         private readonly Func<Vector2Int, string> ownershipFailure;
         private Tool tool;
         private bool isVisible;
-        private int selectedSourceIndex;
         private string message = "Choose a tool, then click a grid cell.";
         private bool constructionBatch;
         public event Action ConstructionStarting;
@@ -222,14 +221,11 @@ namespace CozyFoodFactory.Food
             for (int index = 0; index < cells.Count; index++)
                 valid[index] = IsOwned(cells[index]) && occupancy.CanPlace(cells[index], Vector2Int.one,
                         BuildingRotation.Degrees0) &&
-                        HasAvailableSelectedSource() &&
-                        preview.TryAddPipe(cells[index], sources[selectedSourceIndex]);
+                        preview.TryAddPipe(cells[index]) &&
+                        preview.TryGetConnection(cells[index], out PropertyConnection pipe) &&
+                        IsSourceAvailable(pipe.SourceCell);
             return valid;
         }
-
-        private bool TryPlacePipe(Vector2Int cell, Vector2Int sourceCell) =>
-            IsSourceAvailable(sourceCell) && TryPlaceConnection(cell, "Pipe",
-                () => network.TryAddPipe(cell, sourceCell));
 
         public bool HasPipeAt(Vector2Int cell) =>
             network.TryGetConnection(cell, out PropertyConnection connection) &&
@@ -430,6 +426,21 @@ namespace CozyFoodFactory.Food
             return $"{demand.Property} supplied: {status.AvailableCapacity}/{status.Capacity} capacity free.";
         }
 
+        // Resolve registered world records at the placement location, regardless of origin.
+        public bool TryPlaceCollector(Vector2Int cell)
+        {
+            foreach (Vector2Int direction in new[]
+                { Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left })
+            {
+                Vector2Int sourceCell = cell + direction;
+                if (IsSourceAvailable(sourceCell) && network.CanAddCollector(cell, sourceCell))
+                    return TryPlaceCollector(cell, sourceCell);
+            }
+            message = !IsOwned(cell) ? GetOwnershipFailure(cell) :
+                "Collector must touch an available source without joining another source.";
+            return false;
+        }
+
         public bool TryPlaceCollector(Vector2Int cell, Vector2Int sourceCell) =>
             IsSourceAvailable(sourceCell) &&
             TryPlaceConnection(cell, "Collector", () => network.TryAddCollector(cell, sourceCell));
@@ -499,8 +510,7 @@ namespace CozyFoodFactory.Food
 
             bool added = tool switch
             {
-                Tool.Collector => HasAvailableSelectedSource() &&
-                    TryPlaceCollector(cell, sources[selectedSourceIndex]),
+                Tool.Collector => TryPlaceCollector(cell),
                 Tool.Pipe => TryPlacePipe(cell),
                 Tool.TestDemand => TryPlaceConnection(cell, "Test load",
                     () => network.TryAddDemand(cell)),
@@ -525,8 +535,7 @@ namespace CozyFoodFactory.Food
                     try
                     {
                         for (int index = 0; index < pipePath.Count; index++)
-                            if (valid[index] && HasAvailableSelectedSource())
-                                TryPlacePipe(pipePath[index], sources[selectedSourceIndex]);
+                            if (valid[index]) TryPlacePipe(pipePath[index]);
                     }
                     finally
                     {
@@ -604,7 +613,7 @@ namespace CozyFoodFactory.Food
                 reservations.Remove(cell);
                 message = kind switch
                 {
-                    "Collector" => "Collector must touch its selected source without joining another source.",
+                    "Collector" => "Collector must touch its source without joining another source.",
                     "Pipe" => "Pipe must touch a Collector or Pipe from one source; sources cannot merge.",
                     _ => "Test load must touch a Collector or Pipe from one source."
                 };
@@ -635,19 +644,7 @@ namespace CozyFoodFactory.Food
                 "Property connections");
             GUILayout.Label(debugTools ? $"Tool: {tool}  |  Hover: {hover.HoveredCell}" :
                 $"Tool: {tool}");
-            if (HasAvailableSelectedSource())
-            {
-                Vector2Int selected = sources[selectedSourceIndex];
-                PropertyConnection source = GetConnection(selected);
-                if (GUILayout.Button(debugTools
-                        ? $"Collector source: {source.Property} {selected}"
-                        : $"Collector source: {source.Property}"))
-                {
-                    do { selectedSourceIndex = (selectedSourceIndex + 1) % sources.Count; }
-                    while (!IsSourceAvailable(sources[selectedSourceIndex]));
-                }
-            }
-            else GUILayout.Label("Complete the Carrot order to use Heat.");
+            GUILayout.Label("Collector uses the adjacent available source.");
             if (!debugTools)
                 GUILayout.Label("Water follows French Fries; Time and Cold are for later chapters.");
 
@@ -662,7 +659,7 @@ namespace CozyFoodFactory.Food
             GUILayout.EndHorizontal();
             GUILayout.Label(debugTools ?
                 "Select a tool, then click the map. Test loads use 1 capacity." :
-                "Select a source and tool, then click the map.");
+                "Choose Collector, then click beside a source.");
             GUILayout.Label("Processor property port connects through its open corner.");
             GUILayout.Label("Property color: connected  |  Gray: disconnected");
             GUILayout.Label("Amber: over capacity  |  Green/red: demand supplied/not");
@@ -728,19 +725,6 @@ namespace CozyFoodFactory.Food
             return preview.TryAddPipe(cell) &&
                 preview.TryGetConnection(cell, out PropertyConnection connection) &&
                 IsSourceAvailable(connection.SourceCell);
-        }
-
-        private bool HasAvailableSelectedSource()
-        {
-            if (sources.Count == 0) return false;
-            if (IsSourceAvailable(sources[selectedSourceIndex])) return true;
-            for (int index = 0; index < sources.Count; index++)
-                if (IsSourceAvailable(sources[index]))
-                {
-                    selectedSourceIndex = index;
-                    return true;
-                }
-            return false;
         }
 
         private bool Reserve(Vector2Int cell, string id,

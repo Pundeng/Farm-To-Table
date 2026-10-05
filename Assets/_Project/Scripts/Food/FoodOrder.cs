@@ -281,22 +281,38 @@ namespace CozyFoodFactory.Food
             Order = order ?? throw new ArgumentNullException(nameof(order));
             Order.Validate();
             this.receiver = receiver ?? throw new ArgumentNullException(nameof(receiver));
+            if (savedProgress != null)
+                ValidateSavedProgress(order, savedProgress,
+                    receiver.Inventory.GetDeliveredCount);
             foreach (FoodOrderRequirement requirement in Order.Requirements)
             {
                 int current = receiver.Inventory.GetDeliveredCount(requirement.Food);
                 int progress = 0;
-                if (savedProgress != null &&
-                    (!savedProgress.TryGetValue(requirement.Food, out progress) ||
-                     progress < 0 || progress >= requirement.Quantity || progress > current))
-                {
-                    throw new ArgumentException("Invalid saved order progress.",
-                        nameof(savedProgress));
-                }
+                savedProgress?.TryGetValue(requirement.Food, out progress);
 
                 startingCounts.Add(requirement.Food, current - progress);
             }
 
             receiver.FoodDelivered += OnFoodDelivered;
+        }
+
+        public static void ValidateSavedProgress(FoodOrder order,
+            IReadOnlyDictionary<FoodItemData, int> progress,
+            Func<FoodItemData, int> deliveredCount)
+        {
+            bool incomplete = false;
+            if (progress.Count != order.Requirements.Count)
+                throw new ArgumentException("Incomplete saved order progress.");
+            foreach (FoodOrderRequirement requirement in order.Requirements)
+            {
+                if (!progress.TryGetValue(requirement.Food, out int count) ||
+                    count < 0 || count > requirement.Quantity ||
+                    count > deliveredCount(requirement.Food))
+                    throw new ArgumentException("Invalid saved order progress.");
+                incomplete |= count < requirement.Quantity;
+            }
+            if (!incomplete)
+                throw new ArgumentException("A completed objective cannot remain active.");
         }
 
         public FoodOrder Order { get; }

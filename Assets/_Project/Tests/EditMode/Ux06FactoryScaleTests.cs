@@ -175,7 +175,7 @@ namespace CozyFoodFactory.Tests.EditMode
             var empty = ConstructionLayout.FromWorld(new FactoryWorldData());
             ConstructionChange deletion = populated.Difference(empty);
             var history = new ConstructionHistory();
-            ConstructionLayout current = populated;
+            ConstructionLayout current = empty;
             history.Record(deletion);
 
             Assert.That(deletion.Before.Buildings, Has.Length.EqualTo(3));

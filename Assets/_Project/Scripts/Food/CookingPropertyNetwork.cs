@@ -116,19 +116,22 @@ namespace CozyFoodFactory.Food
 
         public bool TryAddCollector(Vector2Int cell, Vector2Int sourceCell)
         {
-            if (connections.ContainsKey(cell) ||
-                !connections.TryGetValue(sourceCell, out PropertyConnection source) ||
-                source.Kind != PropertyConnectionKind.Source ||
-                !AreAdjacent(cell, sourceCell) ||
-                TouchesForeignNetwork(cell, sourceCell))
+            if (!CanAddCollector(cell, sourceCell))
             {
                 return false;
             }
 
+            PropertyConnection source = connections[sourceCell];
             connections.Add(cell, new PropertyConnection(cell, sourceCell,
                 source.Property, PropertyConnectionKind.Collector));
             return true;
         }
+
+        internal bool CanAddCollector(Vector2Int cell, Vector2Int sourceCell) =>
+            !connections.ContainsKey(cell) &&
+            connections.TryGetValue(sourceCell, out PropertyConnection source) &&
+            source.Kind == PropertyConnectionKind.Source &&
+            AreAdjacent(cell, sourceCell) && !TouchesForeignNetwork(cell, sourceCell);
 
         public bool TryAddPipe(Vector2Int cell)
         {

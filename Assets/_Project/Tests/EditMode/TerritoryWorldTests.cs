@@ -180,11 +180,11 @@ namespace CozyFoodFactory.Tests.EditMode
         public void EntireRotatedMultiCellFootprintMustBeOwned()
         {
             var system = NewSystem();
-            Assert.That(system.ContainsFootprint(new Vector2Int(7, -8),
+            Assert.That(system.ContainsFootprint(new Vector2Int(16, -8),
                 new Vector2Int(2, 1), BuildingRotation.Degrees0), Is.True);
-            Assert.That(system.ContainsFootprint(new Vector2Int(8, -8),
+            Assert.That(system.ContainsFootprint(new Vector2Int(17, -8),
                 new Vector2Int(2, 1), BuildingRotation.Degrees0), Is.False);
-            Assert.That(system.ContainsFootprint(new Vector2Int(8, -8),
+            Assert.That(system.ContainsFootprint(new Vector2Int(17, -8),
                 new Vector2Int(2, 1), BuildingRotation.Degrees90), Is.True);
         }
 

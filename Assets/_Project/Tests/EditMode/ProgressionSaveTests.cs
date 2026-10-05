@@ -416,7 +416,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 Assert.That(firstData.world.purchasedTerritories.Select(item => item.Coordinate),
                     Is.EqualTo(new[] { new Vector2Int(0, -1) }));
                 Assert.That(secondData.world.purchasedTerritories.Select(item => item.Coordinate),
-                    Is.EqualTo(new[] { new Vector2Int(1, -1), new Vector2Int(0, -1) }));
+                    Is.EqualTo(new[] { new Vector2Int(0, -1), new Vector2Int(1, -1) }));
                 Assert.That(firstData.world.buildings[0].belt.item.id, Is.EqualTo(first.Apple.Id));
                 Assert.That(secondData.world.buildings[0].belt.item.id,
                     Is.EqualTo(second.DriedApple.Id));
@@ -611,7 +611,7 @@ namespace CozyFoodFactory.Tests.EditMode
                     FactoryWorldSnapshotValidator.ValidateAgainstScene(world, options,
                         settings, keys,
                         Array.Empty<ProcessingRecipe>(), Array.Empty<MixingRecipe>(),
-                        new Vector2Int(2, 2), new Vector2Int(3, 3)));
+                        new Vector2Int(2, 2), new Vector2Int(5, 5)));
             }
             finally
             {

@@ -324,7 +324,8 @@ namespace CozyFoodFactory.Food
             Vector2Int marketCell,
             Vector2Int marketFootprint,
             IReadOnlyList<CuttingRecipe> cuttingRecipes = null,
-            IReadOnlyList<TradeRecipe> tradeRecipes = null)
+            IReadOnlyList<TradeRecipe> tradeRecipes = null,
+            float processorDuration = 1f, float cutterDuration = 1f)
         {
             cuttingRecipes ??= Array.Empty<CuttingRecipe>();
             tradeRecipes ??= Array.Empty<TradeRecipe>();
@@ -406,6 +407,8 @@ namespace CozyFoodFactory.Food
 
             var definitions = options.ToDictionary(option => option.Definition.Id,
                 option => option.Definition, StringComparer.Ordinal);
+            ResolveCurrentFoodValues(world, options, processingRecipes,
+                mixingRecipes, cuttingRecipes, tradeRecipes);
             var sourceCells = savedSources.ToDictionary(source => source.cell);
             var cropUnlocks = new HashSet<string>(StringComparer.Ordinal);
             foreach (SavedUnlock unlock in savedUnlocks)
@@ -466,6 +469,7 @@ namespace CozyFoodFactory.Food
 
                 if (saved.farmPlot != null)
                 {
+                    CropDefinition selectedCrop = null;
                     if (!string.IsNullOrEmpty(saved.farmPlot.cropId))
                     {
                         FarmPlot plot = definition.InstancePrefab?.GetComponent<FarmPlot>();
@@ -477,61 +481,41 @@ namespace CozyFoodFactory.Food
                         {
                             throw new ArgumentException("Saved crop is unavailable.");
                         }
+                        selectedCrop = crop;
                     }
 
                     FarmPlot prefabPlot = definition.InstancePrefab?.GetComponent<FarmPlot>();
-                    if (prefabPlot == null ||
-                        saved.farmPlot.matureCount > prefabPlot.MatureCapacity)
+                    if (prefabPlot == null)
                     {
-                        throw new ArgumentException("Farm Plot capacity is invalid.");
+                        throw new ArgumentException("Farm Plot prefab is unavailable.");
                     }
-                }
-
-                if (saved.belt != null && saved.belt.item != null &&
-                    !IsAuthoredFood(saved.belt.item, options, processingRecipes,
-                        mixingRecipes, cuttingRecipes, tradeRecipes))
-                {
-                    throw new ArgumentException("Belt item is not authored in this scene.");
+                    new FarmPlotProcess(prefabPlot.MatureCapacity).Restore(selectedCrop,
+                        saved.farmPlot.matureCount, saved.farmPlot.elapsedSeconds);
                 }
 
                 if (saved.processor != null)
                 {
                     SavedProcessor process = saved.processor;
-                    if (process.state != ProcessorState.Idle &&
-                        !processingRecipes.Any(recipe =>
-                            Matches(recipe.Input, process.input) &&
-                            recipe.Property == process.activeProperty &&
-                            Matches(recipe.Output, process.output)))
-                    {
-                        throw new ArgumentException("Processor recipe is unavailable.");
-                    }
+                    new ProcessorProcess(new ProcessingRecipeCatalog(processingRecipes),
+                        processorDuration).Restore(process.state, process.input?.ToFood(),
+                            process.activeProperty, process.output?.ToFood(),
+                            process.elapsedSeconds);
                 }
 
                 if (saved.mixer != null)
                 {
                     SavedMixer mixer = saved.mixer;
-                    if (mixer.slotA != null && mixer.slotB != null ||
-                        mixer.slotA != null && !mixingRecipes.Any(recipe =>
-                            Matches(recipe.IngredientA, mixer.slotA) ||
-                            Matches(recipe.IngredientB, mixer.slotA)) ||
-                        mixer.slotB != null && !mixingRecipes.Any(recipe =>
-                            Matches(recipe.IngredientA, mixer.slotB) ||
-                            Matches(recipe.IngredientB, mixer.slotB)) ||
-                        mixer.output != null && !mixingRecipes.Any(recipe =>
-                            Matches(recipe.Output, mixer.output)))
-                    {
-                        throw new ArgumentException("Mixer food is unavailable.");
-                    }
+                    new BasicMixerProcess(new MixingRecipeCatalog(mixingRecipes)).Restore(
+                        mixer.slotA?.ToFood(), mixer.slotB?.ToFood(), mixer.output?.ToFood());
                 }
 
                 if (saved.tradeBuilding != null)
                     new TradeProcess(tradeRecipes).Restore(saved.tradeBuilding);
 
-                if (saved.cutter != null && saved.cutter.state != CutterState.Idle &&
-                    !cuttingRecipes.Any(recipe =>
-                        Matches(recipe.Input, saved.cutter.input) &&
-                        Matches(recipe.Output, saved.cutter.output)))
-                    throw new ArgumentException("Cutter recipe is unavailable.");
+                if (saved.cutter != null)
+                    new CutterProcess(new CuttingRecipeCatalog(cuttingRecipes), cutterDuration)
+                        .Restore(saved.cutter.state, saved.cutter.input?.ToFood(),
+                            saved.cutter.output?.ToFood(), saved.cutter.elapsedSeconds);
             }
 
             foreach (SavedBuilding saved in world.buildings.Where(item =>
@@ -559,45 +543,60 @@ namespace CozyFoodFactory.Food
                 }
 
                 Harvester prefab = definition.InstancePrefab?.GetComponent<Harvester>();
-                if (prefab == null ||
-                    saved.harvester.outputs.Length > prefab.OutputCapacity ||
-                    saved.harvester.outputs.Any(food =>
-                        !IsAuthoredFood(food, options, processingRecipes,
-                            mixingRecipes, cuttingRecipes, tradeRecipes)))
+                if (prefab == null)
                 {
                     throw new ArgumentException("Harvester output is unavailable.");
                 }
+                new HarvesterProcess(prefab.HarvestInterval, prefab.OutputCapacity).Restore(
+                    saved.harvester.outputs.Select(food => food.ToFood()).ToArray(),
+                    saved.harvester.elapsedSeconds);
             }
         }
 
-        private static bool IsAuthoredFood(SavedFood food,
+        private static void ResolveCurrentFoodValues(FactoryWorldData world,
             IReadOnlyList<BuildingPlacementOption> options,
-            IReadOnlyList<ProcessingRecipe> processingRecipes,
-            IReadOnlyList<MixingRecipe> mixingRecipes,
-            IReadOnlyList<CuttingRecipe> cuttingRecipes,
-            IReadOnlyList<TradeRecipe> tradeRecipes)
+            IReadOnlyList<ProcessingRecipe> processing,
+            IReadOnlyList<MixingRecipe> mixing, IReadOnlyList<CuttingRecipe> cutting,
+            IReadOnlyList<TradeRecipe> trades)
         {
-            if (tradeRecipes.Any(recipe => Matches(recipe.Input, food) || Matches(recipe.Output, food)) ||
-                processingRecipes.Any(recipe => Matches(recipe.Input, food) ||
-                    Matches(recipe.Output, food)) ||
-                mixingRecipes.Any(recipe => Matches(recipe.IngredientA, food) ||
-                    Matches(recipe.IngredientB, food) || Matches(recipe.Output, food)) ||
-                cuttingRecipes.Any(recipe => Matches(recipe.Input, food) ||
-                    Matches(recipe.Output, food)))
+            var foods = new Dictionary<string, FoodItemData>(StringComparer.Ordinal);
+            void Add(FoodItemData food)
             {
-                return true;
+                if (food?.IsValid != true)
+                    throw new ArgumentException("Invalid authored food.");
+                if (foods.TryGetValue(food.Id, out FoodItemData previous) &&
+                    (previous.Kind != food.Kind || previous.SellValue != food.SellValue))
+                    throw new ArgumentException($"Inconsistent authored food: {food.Id}.");
+                foods[food.Id] = food;
             }
-
-            FarmPlot plot = options.FirstOrDefault(option =>
-                option.Definition.Id == nameof(FarmPlot))?.Definition.InstancePrefab
-                ?.GetComponent<FarmPlot>();
-            return plot != null && plot.AvailableCrops.Any(crop =>
-                Matches(crop.Output, food));
+            foreach (BuildingPlacementOption option in options)
+            {
+                FarmPlot plot = option.Definition.InstancePrefab?.GetComponent<FarmPlot>();
+                if (plot != null)
+                    foreach (CropDefinition crop in plot.AvailableCrops) Add(crop.Output);
+            }
+            foreach (ProcessingRecipe recipe in processing) { Add(recipe.Input); Add(recipe.Output); }
+            foreach (MixingRecipe recipe in mixing)
+            { Add(recipe.IngredientA); Add(recipe.IngredientB); Add(recipe.Output); }
+            foreach (CuttingRecipe recipe in cutting) { Add(recipe.Input); Add(recipe.Output); }
+            foreach (TradeRecipe recipe in trades) { Add(recipe.Input); Add(recipe.Output); }
+            void Resolve(SavedFood saved)
+            {
+                if (saved == null) return;
+                if (!foods.TryGetValue(saved.id, out FoodItemData current) || current.Kind != saved.kind)
+                    throw new ArgumentException($"Saved food is unavailable: {saved.id}.");
+                saved.sellValue = current.SellValue;
+            }
+            foreach (SavedBuilding building in world.buildings)
+            {
+                Resolve(building.belt?.item);
+                if (building.harvester != null)
+                    foreach (SavedFood food in building.harvester.outputs) Resolve(food);
+                Resolve(building.processor?.input); Resolve(building.processor?.output);
+                Resolve(building.mixer?.slotA); Resolve(building.mixer?.slotB); Resolve(building.mixer?.output);
+                Resolve(building.cutter?.input); Resolve(building.cutter?.output);
+            }
         }
-
-        private static bool Matches(FoodItemData authored, SavedFood saved) =>
-            authored != null && saved != null && authored.Id == saved.id &&
-            authored.Kind == saved.kind && authored.SellValue == saved.sellValue;
 
         private static void ValidateState(SavedBuilding building)
         {

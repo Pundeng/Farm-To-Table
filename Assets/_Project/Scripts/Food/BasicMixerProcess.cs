@@ -26,7 +26,8 @@ namespace CozyFoodFactory.Food
             FoodItemData pendingOutput)
         {
             if (slotA != null && slotB != null ||
-                pendingOutput != null && (slotA != null || slotB != null) ||
+                pendingOutput != null && (slotA != null || slotB != null ||
+                    !catalog.CanProduce(pendingOutput)) ||
                 slotA != null && !catalog.CanStart(slotA) ||
                 slotB != null && !catalog.CanStart(slotB))
             {
