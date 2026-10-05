@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using CozyFoodFactory.Buildings;
 using CozyFoodFactory.CameraControl;
 using CozyFoodFactory.Food;
@@ -11,6 +12,137 @@ namespace CozyFoodFactory.Tests.EditMode
 {
     public sealed class ProcessorProcessTests
     {
+        [TestCase(CookingProperty.Heat)]
+        [TestCase(CookingProperty.Water)]
+        [TestCase(CookingProperty.Time)]
+        [TestCase(CookingProperty.Cold)]
+        public void GeneratedSourcesResolveLocallyAndSurviveConnectionReload(CookingProperty property)
+        {
+            PropertySourceSetup[] patch = GeneratedPatch(property);
+            var root = new GameObject("Generated source lookup test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var occupancy = new GridOccupancy();
+                // The first source belongs to another location, as in the growing world list.
+                var supply = new PropertySupplyPlayMode(grid, null, occupancy, root.transform,
+                    new[] { new PropertySourceSetup { cell = Vector2Int.zero } });
+                supply.AddSources(patch);
+                Assert.That(supply.CaptureSources().Length, Is.EqualTo(patch.Length + 1));
+                foreach (PropertySourceSetup source in patch)
+                {
+                    Assert.That(supply.TryGetSourceStatus(source.cell, out PropertySupplyStatus status), Is.True);
+                    Assert.That(status.Capacity, Is.EqualTo(source.capacity));
+                    Assert.That(occupancy.CanPlace(source.cell, Vector2Int.one, BuildingRotation.Degrees0), Is.False);
+                }
+                Assert.That(root.GetComponentsInChildren<SpriteRenderer>().Length, Is.GreaterThanOrEqualTo(patch.Length));
+                Vector2Int selected = patch[0].cell;
+                Vector2Int collector = selected + Vector2Int.left;
+                Vector2Int pipe = collector + Vector2Int.left;
+                Assert.That(supply.TryPlaceCollector(selected), Is.False); // Source cell is occupied.
+                Assert.That(supply.TryPlaceCollector(selected + new Vector2Int(-3, 0)), Is.False);
+                Assert.That(supply.TryPlaceCollector(collector, Vector2Int.zero), Is.False);
+                Assert.That(supply.TryPlaceCollector(collector), Is.True);
+                Assert.That(supply.PreviewPipePath(new[] { pipe, pipe + Vector2Int.left }), Is.All.EqualTo(true));
+                Assert.That(supply.TryPlacePipe(pipe), Is.True);
+                supply.RegisterProcessorPort(pipe + Vector2Int.left, pipe);
+                Assert.That(supply.TryGetProcessorSupply(pipe + Vector2Int.left, out CookingProperty supplied), Is.True);
+                Assert.That(supplied, Is.EqualTo(property));
+
+                var saved = JsonUtility.FromJson<FactoryWorldData>(JsonUtility.ToJson(new FactoryWorldData
+                {
+                    propertySources = supply.CaptureSources().Select(source => new SavedPropertySource(source)).ToArray(),
+                    connections = supply.CaptureWorldConnections()
+                }));
+                // Reuse the normal reconstruction path twice to check reset releases all reservations.
+                for (int reload = 0; reload < 2; reload++)
+                {
+                    supply.ResetSources(saved.propertySources.Select(source => source.ToSetup()));
+                    supply.RestoreWorldConnections(saved.connections);
+                    supply.RegisterProcessorPort(pipe + Vector2Int.left, pipe);
+                    Assert.That(supply.TryGetProcessorSupply(pipe + Vector2Int.left, out supplied), Is.True);
+                    Assert.That(supplied, Is.EqualTo(property));
+                    Assert.That(supply.CaptureSources().Select(source => source.cell).Distinct().Count(), Is.EqualTo(patch.Length + 1));
+                    Assert.That(supply.CaptureWorldConnections().All(connection =>
+                        new Vector2Int(connection.sourceX, connection.sourceY) == selected && connection.property == property), Is.True);
+                    Assert.That(supply.TryRemoveConnection(collector), Is.True);
+                    Assert.That(supply.TryGetProcessorSupply(pipe + Vector2Int.left, out _), Is.False);
+                    Assert.That(supply.TryPlaceCollector(collector), Is.True);
+                    Assert.That(supply.TryGetProcessorSupply(pipe + Vector2Int.left, out _), Is.True);
+                    Assert.That(supply.CaptureSources().Single(source => source.cell == selected).property, Is.EqualTo(property));
+                }
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
+        [TestCase(CookingProperty.Heat)]
+        [TestCase(CookingProperty.Water)]
+        [TestCase(CookingProperty.Time)]
+        [TestCase(CookingProperty.Cold)]
+        public void GeneratedAndAuthoredClusterCellsUseTheSamePlacementPredicates(CookingProperty property)
+        {
+            PropertySourceSetup[] patch = GeneratedPatch(property);
+            var authoredRoot = new GameObject("Authored cluster test");
+            var generatedRoot = new GameObject("Generated cluster test");
+            try
+            {
+                var authored = new PropertySupplyPlayMode(authoredRoot.AddComponent<GridSystem>(), null,
+                    new GridOccupancy(), authoredRoot.transform, patch);
+                var generated = new PropertySupplyPlayMode(generatedRoot.AddComponent<GridSystem>(), null,
+                    new GridOccupancy(), generatedRoot.transform, System.Array.Empty<PropertySourceSetup>());
+                generated.AddSources(patch);
+                foreach (PropertySourceSetup source in patch)
+                foreach (Vector2Int direction in new[] { Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left })
+                {
+                    Vector2Int cell = source.cell + direction;
+                    bool expected = authored.TryPlaceCollector(cell, source.cell);
+                    Assert.That(generated.TryPlaceCollector(cell), Is.EqualTo(expected), $"Source {source.cell}, cell {cell}");
+                    if (expected)
+                    {
+                        Assert.That(authored.TryRemoveConnection(cell), Is.True);
+                        Assert.That(generated.TryRemoveConnection(cell), Is.True);
+                    }
+                }
+                Assert.That(generated.CaptureSources().Length, Is.EqualTo(patch.Length));
+            }
+            finally { Object.DestroyImmediate(authoredRoot); Object.DestroyImmediate(generatedRoot); }
+        }
+
+        private static PropertySourceSetup[] GeneratedPatch(CookingProperty property)
+        {
+            var generator = new PropertyWorldGenerator(new TerritoryWorldSettings());
+            return Enumerable.Range(0, 1024)
+                .Select(seed => generator.Generate(seed, new Vector2Int(4, -3)))
+                .First(items => items[0].property == property);
+        }
+
+        [Test]
+        public void RevealedSourceRequiresBuildableTerritoryAndAvailableProperty()
+        {
+            var settings = new TerritoryWorldSettings();
+            var territories = new TerritorySystem(settings).Initialize();
+            PropertySourceSetup[] patch = new PropertyWorldGenerator(settings).Generate(42, new Vector2Int(2, 0));
+            var root = new GameObject("Property territory test");
+            bool unlocked = true;
+            try
+            {
+                var supply = new PropertySupplyPlayMode(root.AddComponent<GridSystem>(), null,
+                    new GridOccupancy(), root.transform, patch, sourceAvailable: _ => unlocked,
+                    cellOwned: territories.IsBuildableCell);
+                Vector2Int collector = patch[0].cell + Vector2Int.left;
+                Assert.That(supply.TryGetSourceStatus(patch[0].cell, out _), Is.True);
+                Assert.That(supply.TryPlaceCollector(collector), Is.False);
+                var wallet = new MarketInventory();
+                wallet.RecordDelivery(new FoodItemData("test-currency", FoodItemKind.RawIngredient, 100));
+                Assert.That(territories.TryPurchase(new Vector2Int(2, 0), wallet), Is.True);
+                unlocked = false;
+                Assert.That(supply.TryPlaceCollector(collector), Is.False);
+                unlocked = true;
+                Assert.That(supply.TryPlaceCollector(collector), Is.True);
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
         [Test]
         public void MachineAnimationDecisions_ReactOnlyToNewOutputOrHarvest()
         {

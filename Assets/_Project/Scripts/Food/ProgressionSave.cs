@@ -192,7 +192,9 @@ namespace CozyFoodFactory.Food
                 File.WriteAllText(temporaryPath, ToJson(), new UTF8Encoding(false));
                 if (File.Exists(path))
                 {
-                    File.Replace(temporaryPath, path, null);
+                    string backup = TryReadValidated(path, out _, out _)
+                        ? path + ".bak" : null;
+                    File.Replace(temporaryPath, path, backup);
                 }
                 else
                 {
@@ -453,16 +455,8 @@ namespace CozyFoodFactory.Food
                     }
                 }
 
-                foreach (FoodOrderRequirement requirement in active.Requirements)
-                {
-                    if (!progress.TryGetValue(requirement.Food, out int count) ||
-                        count < 0 || count >= requirement.Quantity ||
-                        count > (deliveries.TryGetValue(requirement.Food, out int delivered)
-                            ? delivered : 0))
-                    {
-                        throw new ArgumentException("Invalid saved order progress.");
-                    }
-                }
+                FoodOrderProgress.ValidateSavedProgress(active, progress,
+                    food => deliveries.TryGetValue(food, out int delivered) ? delivered : 0);
             }
 
             var unlocks = new List<UnlockKey>();

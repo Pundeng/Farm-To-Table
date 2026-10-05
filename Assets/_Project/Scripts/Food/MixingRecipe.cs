@@ -55,6 +55,13 @@ namespace CozyFoodFactory.Food
             return false;
         }
 
+        public bool CanProduce(FoodItemData food)
+        {
+            foreach (MixingRecipe recipe in recipes)
+                if (recipe?.Output?.Equals(food) == true) return true;
+            return false;
+        }
+
         public ProcessingRecipeMatch Find(FoodItemData first, FoodItemData second,
             out MixingRecipe recipe)
         {

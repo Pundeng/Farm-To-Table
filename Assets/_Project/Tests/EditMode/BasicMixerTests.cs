@@ -111,7 +111,7 @@ namespace CozyFoodFactory.Tests.EditMode
                 Assert.That(mixer.PeekOutput(), Is.EqualTo(VegetableBase));
 
                 BeltCell outputBelt = system.AddBelt(mixer.OutputCell, GridDirection.East);
-                var market = new MarketReceiver(mixer.OutputCell + Vector2Int.right,
+                var market = new MarketReceiver(mixer.OutputCell + Vector2Int.right - Vector2Int.up,
                     new MarketInventory());
                 foreach (IItemInputReceiver input in market.InputReceivers)
                     system.RegisterInputReceiver(input);

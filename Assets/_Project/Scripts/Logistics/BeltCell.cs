@@ -115,6 +115,13 @@ namespace CozyFoodFactory.Logistics
             NextInputIndex = index;
         }
 
+        public void RestoreOutputCursor(int index)
+        {
+            if (index < 0 || index > 3)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            NextOutputIndex = index;
+        }
+
         public Vector2Int OutputCell => Cell + Direction.ToOffset();
 
         public TransportedItem Item { get; private set; }

@@ -23,6 +23,7 @@ namespace CozyFoodFactory.Food
         public int OutputCount => process?.OutputCount ?? 0;
 
         public int OutputCapacity => outputCapacity;
+        public float HarvestInterval => harvestInterval;
 
         public bool HasOutput => process?.HasOutput ?? false;
 

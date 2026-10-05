@@ -97,10 +97,21 @@ namespace CozyFoodFactory.Logistics
 
         public void RestoreWorldState(SavedBelt saved)
         {
+            RestoreWorldOutputs(saved);
+            RestoreWorldContinuation(saved);
+        }
+
+        public void RestoreWorldOutputs(SavedBelt saved)
+        {
             cell.SetOutputs(saved.outputMask == 0
                 ? BeltCell.Bit(direction) : saved.outputMask, saved.nextOutputIndex);
-            cell.RestoreInputCursor(saved.nextInputIndex);
             coordinator.RefreshConnections();
+        }
+
+        public void RestoreWorldContinuation(SavedBelt saved)
+        {
+            cell.RestoreOutputCursor(saved.nextOutputIndex);
+            cell.RestoreInputCursor(saved.nextInputIndex);
             if (saved.item != null)
             {
                 cell.RestoreItem(saved.item.ToFood(), saved.entryDirection,

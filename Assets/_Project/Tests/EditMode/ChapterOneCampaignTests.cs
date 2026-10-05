@@ -17,16 +17,16 @@ namespace CozyFoodFactory.Tests.EditMode
         private const string ScenePath = "Assets/_Project/Scenes/Demo.unity";
 
         [Test]
-        public void FixedMarket_UsesThreeByThreeFootprintCenteredOnItsAnchor()
+        public void FixedMarket_UsesFiveByFiveFootprintCenteredOnItsAnchor()
         {
             WithScene((market, buildings) =>
             {
-                Assert.That(market.Footprint, Is.EqualTo(new Vector2Int(3, 3)));
+                Assert.That(market.Footprint, Is.EqualTo(new Vector2Int(5, 5)));
                 Assert.That(market.InputPorts.Count, Is.EqualTo(12));
                 Assert.That(market.InputPorts.Select(port => port.ExternalCell).Distinct().Count(), Is.EqualTo(12));
                 Assert.That(market.transform.position,
                     Is.EqualTo(buildings.GridSystem.GridToWorld(
-                        market.AnchorCell + Vector2Int.one)));
+                        market.AnchorCell + new Vector2Int(2, 2))));
             });
         }
 
@@ -42,13 +42,16 @@ namespace CozyFoodFactory.Tests.EditMode
                 Assert.That(territories.GetPurchaseStatus(Vector2Int.zero, 1000),
                     Is.EqualTo(TerritoryPurchaseStatus.ReservedHub));
                 Assert.That(territories.PurchasedCoordinates, Is.EquivalentTo(
-                    new[] { new Vector2Int(0, -1) }));
+                    new[] { new Vector2Int(-1, -1), new Vector2Int(0, -1),
+                        new Vector2Int(1, -1), new Vector2Int(-1, 0),
+                        new Vector2Int(1, 0), new Vector2Int(-1, 1),
+                        new Vector2Int(0, 1), new Vector2Int(1, 1) }));
                 Assert.That(territories.GetParcelVisualState(new Vector2Int(0, -1), 1000),
                     Is.EqualTo(TerritoryParcelVisualState.Owned));
                 Assert.That(territories.GetParcelVisualState(new Vector2Int(0, -2), 1000),
                     Is.EqualTo(TerritoryParcelVisualState.Purchasable));
                 Assert.That(territories.GetParcelVisualState(new Vector2Int(1, 0), 1000),
-                    Is.EqualTo(TerritoryParcelVisualState.Locked));
+                    Is.EqualTo(TerritoryParcelVisualState.Owned));
             });
         }
 
@@ -245,15 +248,8 @@ namespace CozyFoodFactory.Tests.EditMode
             Assert.That((int)CookingProperty.Time, Is.EqualTo(2));
             Assert.That((int)CookingProperty.Cold, Is.EqualTo(3));
             WithScene((_, buildings) =>
-            {
-                var serialized = new SerializedObject(buildings);
-                SerializedProperty sources = serialized.FindProperty("propertySources");
-                Assert.That(sources.arraySize, Is.EqualTo(4));
-                for (int index = 0; index < 4; index++)
-                    Assert.That(sources.GetArrayElementAtIndex(index)
-                        .FindPropertyRelative("property").enumValueIndex,
-                        Is.EqualTo(index));
-            });
+                Assert.That(buildings.ProcessorRecipes.Select(recipe => recipe.Property),
+                    Is.SubsetOf(new[] { CookingProperty.Heat, CookingProperty.Water })));
         }
 
         [Test]

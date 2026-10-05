@@ -302,7 +302,7 @@ namespace CozyFoodFactory.Buildings
             FactoryWorldSnapshotValidator.ValidateAgainstScene(world, buildingOptions,
                 market.Territories.Settings, savedUnlocks,
                 processorRecipes, mixerRecipes, market.AnchorCell, market.Footprint,
-                cutterRecipes, VillageTrades);
+                cutterRecipes, VillageTrades, processorDuration, cutterDuration);
         }
 
         public void RestoreWorldSnapshot(FactoryWorldData world,
@@ -325,6 +325,7 @@ namespace CozyFoodFactory.Buildings
             // Overlay placement requires the underlying Farm Plot to exist first.
             IEnumerable<SavedBuilding> ordered =
                 FactoryWorldSnapshotValidator.ReconstructionOrder(world);
+            var belts = new List<(Belt belt, SavedBelt state)>();
             foreach (SavedBuilding saved in ordered)
             {
                 BuildingPlacementOption option = buildingOptions.FirstOrDefault(candidate =>
@@ -352,8 +353,11 @@ namespace CozyFoodFactory.Buildings
                 else if (saved.cutter != null)
                     instance.GetComponent<Cutter>().RestoreWorldState(saved.cutter);
                 else if (saved.belt != null)
-                    instance.GetComponent<Belt>().RestoreWorldState(saved.belt);
+                    belts.Add((instance.GetComponent<Belt>(), saved.belt));
             }
+
+            foreach (var entry in belts) entry.belt.RestoreWorldOutputs(entry.state);
+            foreach (var entry in belts) entry.belt.RestoreWorldContinuation(entry.state);
 
             propertySupply.RestoreWorldConnections(world.connections);
         }
@@ -363,9 +367,11 @@ namespace CozyFoodFactory.Buildings
             remove => recipeDiscoveries.Discovered -= value;
         }
 
-        private bool IsChapterOnePropertyAvailable(CookingProperty property)
+        private bool IsChapterOnePropertyAvailable(CookingProperty property) =>
+            IsChapterOnePropertyAvailable(property, market?.CompletedOrders.Count ?? 0);
+
+        public static bool IsChapterOnePropertyAvailable(CookingProperty property, int completed)
         {
-            int completed = market?.CompletedOrders.Count ?? 0;
             return property switch
             {
                 CookingProperty.Heat => completed >= 1,
@@ -2403,6 +2409,35 @@ namespace CozyFoodFactory.Buildings
             BuildingDefinition definition = option.Definition;
             return market.Territories.ContainsBuildableFootprint(
                 anchor, definition.Footprint, rotation);
+        }
+
+        public IReadOnlyList<string> ValidateChapterOneContent()
+        {
+            if (market == null) return new[] { "Chapter 1 Market reference is missing." };
+            var missing = new List<string>();
+            foreach (BuildingPlacementOption option in buildingOptions)
+            {
+                string id = option?.Definition?.Id;
+                GameObject prefab = option?.Definition?.InstancePrefab;
+                if (id == nameof(FarmPlot) && prefab?.GetComponent<FarmPlot>() == null ||
+                    id == nameof(Harvester) && prefab?.GetComponent<Harvester>() == null ||
+                    id == nameof(Belt) && prefab?.GetComponent<Belt>() == null)
+                    missing.Add($"Missing instance prefab/component: {id}.");
+            }
+            if (missing.Count != 0) return missing;
+            market.Territories.Settings.Validate(market.AnchorCell, market.Footprint);
+            var territories = new TerritorySystem(market.Territories.Settings).Initialize();
+            var generator = new PropertyWorldGenerator(territories.Settings);
+            CookingProperty[] properties = territories.RelevantCoordinates
+                .Where(territories.IsPurchased)
+                .SelectMany(parcel => generator.Generate(territories.WorldSeed, parcel))
+                .Select(source => source.property).Distinct().ToArray();
+            CropDefinition[] crops = buildingOptions.Where(option => option?.Definition != null)
+                .Select(option => option.Definition.InstancePrefab?.GetComponent<FarmPlot>())
+                .Where(plot => plot != null).SelectMany(plot => plot.AvailableCrops).ToArray();
+            return ChapterOneContentValidation.Validate(buildingOptions, crops, market.Orders,
+                processorRecipes, mixerRecipes, cutterRecipes, tradeRecipes,
+                tradeVillageId, properties);
         }
 
         private bool CanPlaceBuilding(
