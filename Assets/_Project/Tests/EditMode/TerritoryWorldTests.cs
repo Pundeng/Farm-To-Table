@@ -388,8 +388,10 @@ namespace CozyFoodFactory.Tests.EditMode
             Assert.That(system.CoordinateAtCell(new Vector2Int(-10, -10)), Is.EqualTo(new Vector2Int(-2, -2)));
             foreach (BuildingRotation rotation in Enum.GetValues(typeof(BuildingRotation)))
             {
-                Assert.That(system.ContainsFootprint(new Vector2Int(7, -8), new Vector2Int(2, 1), rotation), Is.True);
-                Assert.That(system.ContainsFootprint(new Vector2Int(8, -8), new Vector2Int(2, 1), rotation), Is.False);
+                Assert.That(system.ContainsFootprint(new Vector2Int(16, -8), new Vector2Int(2, 1), rotation), Is.True);
+                Vector2Int crossingBoundary = (int)rotation % 180 == 0
+                    ? new Vector2Int(17, -8) : new Vector2Int(16, 17);
+                Assert.That(system.ContainsFootprint(crossingBoundary, new Vector2Int(2, 1), rotation), Is.False);
             }
         }
 
