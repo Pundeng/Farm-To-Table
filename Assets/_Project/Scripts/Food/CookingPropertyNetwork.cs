@@ -131,14 +131,14 @@ namespace CozyFoodFactory.Food
             !connections.ContainsKey(cell) &&
             connections.TryGetValue(sourceCell, out PropertyConnection source) &&
             source.Kind == PropertyConnectionKind.Source &&
-            AreAdjacent(cell, sourceCell) && !TouchesForeignNetwork(cell, sourceCell);
+            AreAdjacent(cell, sourceCell) &&
+            !TouchesForeignNetwork(cell, sourceCell, allowSamePropertyCollectorNeighbors: true);
 
         public bool TryAddPipe(Vector2Int cell)
         {
             if (connections.ContainsKey(cell) ||
                 !TryGetSingleAdjacentOwner(cell, out Vector2Int sourceCell,
-                    requireConductor: true) ||
-                TouchesForeignNetwork(cell, sourceCell))
+                    requireConductor: true))
             {
                 return false;
             }
@@ -352,14 +352,19 @@ namespace CozyFoodFactory.Food
             return found;
         }
 
-        private bool TouchesForeignNetwork(Vector2Int cell, Vector2Int sourceCell)
+        private bool TouchesForeignNetwork(Vector2Int cell, Vector2Int sourceCell,
+            bool allowSamePropertyCollectorNeighbors = false)
         {
             foreach (Vector2Int direction in Directions)
             {
                 if (connections.TryGetValue(cell + direction,
                         out PropertyConnection neighbor) &&
                     neighbor.SourceCell != sourceCell &&
-                    neighbor.Kind != PropertyConnectionKind.Demand)
+                    neighbor.Kind != PropertyConnectionKind.Demand &&
+                    !(allowSamePropertyCollectorNeighbors &&
+                      (neighbor.Kind == PropertyConnectionKind.Source ||
+                       neighbor.Kind == PropertyConnectionKind.Collector) &&
+                      neighbor.Property == connections[sourceCell].Property))
                 {
                     return true;
                 }

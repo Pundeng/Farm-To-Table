@@ -67,5 +67,5 @@
         "*.sln": "*.csproj",
         "*.slnx": "*.csproj"
     },
-    "dotnet.defaultSolution": "rune-factory-game.slnx"
+    "dotnet.defaultSolution": "Farm-To-Table.slnx"
 }
