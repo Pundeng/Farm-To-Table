@@ -240,6 +240,38 @@ namespace CozyFoodFactory.Tests.EditMode
             }
         }
 
+        [TestCase(CookingProperty.Heat)]
+        [TestCase(CookingProperty.Water)]
+        public void PipePathPreview_KeepsStartingOwnerBesideForeignPipe(CookingProperty otherProperty)
+        {
+            var root = new GameObject("Adjacent pipe preview test");
+            try
+            {
+                var grid = root.AddComponent<GridSystem>();
+                var occupancy = new GridOccupancy();
+                var owner = Vector2Int.zero;
+                var other = new Vector2Int(5, 2);
+                var supply = new PropertySupplyPlayMode(grid, null, occupancy,
+                    root.transform, new[]
+                    {
+                        new PropertySourceSetup { cell = owner, property = CookingProperty.Heat, capacity = 1 },
+                        new PropertySourceSetup { cell = other, property = otherProperty, capacity = 3 }
+                    });
+                Assert.That(supply.TryPlaceCollector(Vector2Int.right, owner), Is.True);
+                Assert.That(supply.TryPlacePipe(new Vector2Int(2, 0)), Is.True);
+                Assert.That(supply.TryPlaceCollector(new Vector2Int(4, 2), other), Is.True);
+                Assert.That(supply.TryPlacePipe(new Vector2Int(3, 2)), Is.True);
+                Assert.That(supply.TryPlacePipe(new Vector2Int(3, 1)), Is.True);
+                CollectionAssert.AreEqual(new[] { false, true }, supply.PreviewPipePath(new[]
+                {
+                    new Vector2Int(2, 0), new Vector2Int(3, 0)
+                }));
+                Assert.That(occupancy.TryGetBuilding(new Vector2Int(3, 0), out _), Is.False,
+                    "Preview must not mutate the live network or occupancy.");
+            }
+            finally { Object.DestroyImmediate(root); }
+        }
+
         [Test]
         public void PipePathPreview_ValidatesCornerAndDoesNotPlaceUntilCommit()
         {

@@ -217,14 +217,33 @@ namespace CozyFoodFactory.Food
         public IReadOnlyList<bool> PreviewPipePath(IReadOnlyList<Vector2Int> cells)
         {
             var valid = new bool[cells.Count];
+            if (!TryGetPipePathSource(cells, out Vector2Int sourceCell)) return valid;
             CookingPropertyNetwork preview = network.CopyForPreview();
             for (int index = 0; index < cells.Count; index++)
                 valid[index] = IsOwned(cells[index]) && occupancy.CanPlace(cells[index], Vector2Int.one,
                         BuildingRotation.Degrees0) &&
-                        preview.TryAddPipe(cells[index]) &&
+                        preview.TryAddPipe(cells[index], sourceCell) &&
                         preview.TryGetConnection(cells[index], out PropertyConnection pipe) &&
                         IsSourceAvailable(pipe.SourceCell);
             return valid;
+        }
+
+        // Keep the drag's starting owner even when the route touches another network.
+        private bool TryGetPipePathSource(IReadOnlyList<Vector2Int> cells,
+            out Vector2Int sourceCell)
+        {
+            sourceCell = default;
+            if (cells.Count == 0) return false;
+            CookingPropertyNetwork preview = network.CopyForPreview();
+            if (!preview.TryGetConnection(cells[0], out PropertyConnection start))
+            {
+                if (!preview.TryAddPipe(cells[0]) ||
+                    !preview.TryGetConnection(cells[0], out start)) return false;
+            }
+            if (start.Kind is not (PropertyConnectionKind.Collector or PropertyConnectionKind.Pipe))
+                return false;
+            sourceCell = start.SourceCell;
+            return IsSourceAvailable(sourceCell);
         }
 
         public bool HasPipeAt(Vector2Int cell) =>
@@ -449,6 +468,10 @@ namespace CozyFoodFactory.Food
             CanUsePipeSource(cell) &&
             TryPlaceConnection(cell, "Pipe", () => network.TryAddPipe(cell));
 
+        private bool TryPlacePipe(Vector2Int cell, Vector2Int sourceCell) =>
+            IsSourceAvailable(sourceCell) &&
+            TryPlaceConnection(cell, "Pipe", () => network.TryAddPipe(cell, sourceCell));
+
         public bool TryRemoveConnection(Vector2Int cell)
         {
             if (!constructionBatch) ConstructionStarting?.Invoke();
@@ -530,12 +553,13 @@ namespace CozyFoodFactory.Food
                 if (pipeDrag.IsActive && !IsPointerOverPanel())
                 {
                     IReadOnlyList<bool> valid = PreviewPipePath(pipePath);
+                    TryGetPipePathSource(pipePath, out Vector2Int sourceCell);
                     ConstructionStarting?.Invoke();
                     constructionBatch = true;
                     try
                     {
                         for (int index = 0; index < pipePath.Count; index++)
-                            if (valid[index]) TryPlacePipe(pipePath[index]);
+                            if (valid[index]) TryPlacePipe(pipePath[index], sourceCell);
                     }
                     finally
                     {
